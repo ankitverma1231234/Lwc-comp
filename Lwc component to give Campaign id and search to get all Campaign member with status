@@ -1,0 +1,89 @@
+# Lwc-comp
+Apex Class-
+
+public class CampaignMemberController {
+    @AuraEnabled(cacheable=true)
+    public static List<CampaignMember> getCampaignMembers(String campaignId) {
+        List<CampaignMember> campaignMembers = new List<CampaignMember>();
+
+        try {
+            // Query Campaign Members related to the given Campaign Id
+            campaignMembers = [SELECT Id, name, Status FROM CampaignMember WHERE CampaignId = :campaignId];
+        } catch(Exception ex) {
+            // Handle any exceptions
+            System.debug('Error retrieving Campaign Members: ' + ex.getMessage());
+        }
+
+        return campaignMembers;
+    }
+}
+
+cmp.html
+
+<template>
+<lightning-card title="Campaign Member List">
+    <div class="slds-clearfix">
+    <lightning-button variant="brand" label="Search" title="Search" onclick={handleSearch}  class="slds-float_right"></lightning-button>
+</div>
+    <div class="slds-m-around_medium">
+        
+        <lightning-input label="Campaign Id" value={campaignId} onchange={handleCampaignIdChange}></lightning-input>
+       
+    
+        
+        </div>
+   
+
+    
+    <template if:true={campaignMembers}>
+        <table class="slds-table slds-table_cell-buffer slds-table_bordered">
+            <thead>
+                <tr class="slds-line-height_reset">
+                    <th class="slds-text-title_caps">Name</th>
+                    <th class="slds-text-title_caps">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template for:each={campaignMembers} for:item="campaignMember">
+                    <tr key={campaignMember.Id}>
+                        <td data-label="Name">{campaignMember.Name}</td>
+                        
+                        <td data-label="Status">{campaignMember.Status}</td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </template>
+    <template if:false={campaignMembers}>
+        <div class="slds-p-horizontal_medium slds-p-vertical_small">
+            No Campaign Members found.
+        </div>
+    </template>
+</lightning-card>
+</template>
+
+Cmp.js
+
+import { LightningElement,track, api } from 'lwc';
+
+import getCampaignMembers from '@salesforce/apex/CampaignMemberController.getCampaignMembers';
+
+export default class account extends LightningElement {
+    @api campaignId;
+    @track campaignMembers = null;
+
+    handleCampaignIdChange(event) {
+        this.campaignId = event.target.value;
+    }
+
+    handleSearch() {
+        // Call Apex method to fetch Campaign Members
+        getCampaignMembers({ campaignId: this.campaignId })
+            .then(result => {
+                this.campaignMembers = result;
+            })
+            .catch(error => {
+                console.error(error);
+            });
+    }
+}
