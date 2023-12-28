@@ -1,0 +1,177 @@
+<!-- barcodeScannerMultiScan.html -->
+<template>
+    <div class="slds-m-around_medium">
+        <lightning-card title="Barcode Scanner Multi-Scan">
+            <div class="slds-m-around_medium">
+                <lightning-button label="Start Scanning" variant="brand" onclick={beginScanning}></lightning-button>
+            </div>
+            <div class="slds-m-around_medium">
+                <p>Scanned Barcodes:</p>
+                <ul>
+                    <template for:each={scannedBarcodes} for:item="barcode">
+                        <li key={barcode.value}>{barcode.value} - Quantity: {barcode.Quantity}</li>
+                    </template>
+                </ul>
+            </div>
+        </lightning-card>
+    </div>
+</template>
+
+BarcodeScanner.js
+import { LightningElement, track } from 'lwc';
+import { getBarcodeScanner } from 'lightning/mobileCapabilities';
+import { createRecord } from 'lightning/uiRecordApi';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+
+export default class BarcodeScanner extends LightningElement {
+    @track scannedBarcodes = [];
+    barcodeScanner = null;
+
+    connectedCallback() {
+        this.barcodeScanner = getBarcodeScanner();
+    }
+
+    beginScanning() {
+        if (this.isScannerAvailable()) {
+            this.startBarcodeScan();
+        } else {
+            console.log('BarcodeScanner unavailable. Non-mobile device?');
+        }
+    }
+
+    isScannerAvailable() {
+        return this.barcodeScanner && this.barcodeScanner.isAvailable();
+    }
+
+    startBarcodeScan() {
+        const scanningOptions = {
+            barcodeTypes: [
+                this.barcodeScanner.barcodeTypes.QR,
+                this.barcodeScanner.barcodeTypes.CODE_128,
+                this.barcodeScanner.barcodeTypes.CODE_39,
+                this.barcodeScanner.barcodeTypes.EAN_13,
+                this.barcodeScanner.barcodeTypes.UPC_E
+                // Add more barcode types as needed
+            ],
+            scannerSize: 'FULLSCREEN',
+            cameraFacing: 'BACK',
+            showSuccessCheckMark: true,
+            enableBulkScan: true,
+            enableMultiScan: true,
+        };
+
+        this.barcodeScanner
+            .scan(scanningOptions)
+            .then((results) => {
+                this.processScannedBarcodes(results);
+            })
+            .catch((error) => {
+                this.processError(error);
+            })
+            .finally(() => {
+                this.barcodeScanner.dismiss();
+            });
+    }
+
+    processScannedBarcodes(barcodes) {
+        // Iterate through the scanned barcodes
+        barcodes.forEach((newBarcode) => {
+            // Check if the barcode already exists in the scannedBarcodes array
+            const existingBarcode = this.scannedBarcodes.find((barcode) => barcode.value === newBarcode.value);
+
+            if (existingBarcode) {
+                // If barcode already exists, increment the quantity
+                existingBarcode.Quantity__c++;
+            } else {
+                // If barcode doesn't exist, add it to the scannedBarcodes array with quantity 1
+                this.scannedBarcodes.push({ value: newBarcode.value, Quantity__c: 1 });
+            }
+        });
+
+        // Log the scanned barcodes
+        console.log(JSON.stringify(this.scannedBarcodes));
+
+        // Call the Apex method to create records
+        this.callApexMethod();
+    }
+
+    processError(error) {
+        if (error.code === 'USER_DISMISSED') {
+            console.log('User terminated scanning session.');
+        } else {
+            console.error(error);
+        }
+    }
+
+    callApexMethod() {
+        //create record when scan barcode
+        if (this.scannedBarcodes.length > 0) {
+            this.scannedBarcodes.forEach((barcode) => {
+                this.createProductInventoryRecord(barcode.value, barcode.Quantity__c);
+            });
+        }
+    }
+
+    createProductInventoryRecord(name, quantity) {
+        // Call the Apex method to save records
+        createRecord({
+            apiName: 'Product_inventory__c',
+            fields: {
+                Name: name,
+                Quantity__c: quantity
+            }
+        })
+        .then((response) => {
+            console.log('Record created: ', response);
+            this.showSuccessToast();
+        })
+        .catch((error) => {
+            console.error('Error creating record: ', error);
+            this.showErrorToast();
+        });
+    }
+
+    showSuccessToast() {
+        const evt = new ShowToastEvent({
+            title: 'Success',
+            message: 'Record created successfully',
+            variant: 'success',
+        });
+        this.dispatchEvent(evt);
+    }
+
+    showErrorToast() {
+        const evt = new ShowToastEvent({
+            title: 'Error',
+            message: 'Error creating record',
+            variant: 'error',
+        });
+        this.dispatchEvent(evt);
+    }
+}
+
+Apex Class:
+public with sharing class ProductInventory {
+    @AuraEnabled(cacheable=true)
+    public static List<Product_inventory__c> getProductInventoryList(String searchKey) {
+        String query = 'SELECT Id, Name, Quantity__c FROM Product_inventory__c';
+        
+        if (String.isNotBlank(searchKey)) {
+            query += ' WHERE Name LIKE :searchKey';
+        }
+
+        return Database.query(query);
+    }
+
+    @AuraEnabled
+    public static void createProductInventoryRecord(String name, Decimal quantity) {
+        Product_inventory__c newRecord = new Product_inventory__c(
+            Name = name,
+            Quantity__c = quantity
+            
+        );
+
+        insert newRecord;
+    }
+}
+
