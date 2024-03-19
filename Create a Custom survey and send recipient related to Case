@@ -1,0 +1,155 @@
+HTML:
+
+<template>
+    <lightning-card title="Send Survey">
+        <div class="slds-m-around_medium">
+            <lightning-button label="Send Survey" variant="brand" onclick={sendsurvey}></lightning-button>
+        </div>
+    </lightning-card>
+    </template>
+
+
+
+JS:
+
+import { LightningElement, track, api } from 'lwc';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import CreateSurveyInvWrpResult from '@salesforce/apex/SampleSurveyController.CreateSurveyInvWrpResult';
+
+export default class Newsurvey extends LightningElement {
+    @track weburl;
+    @track error;
+    @track msg;
+    @api recordId;
+
+    sendsurvey() {
+        CreateSurveyInvWrpResult({ CaseId: this.recordId })
+            .then(result => {
+                this.msg = result;
+                var obj = JSON.parse(JSON.stringify(this.msg));
+                if (obj.bError == true) {
+                    this.showToast('Error', obj.strMsg, 'error');
+                } else {
+                    this.showToast('Success', 'Survey sent successfully!', 'success');
+                    window.open(obj.strMsg);
+                }
+                this.error = undefined;
+            })
+            .catch(error => {
+                this.msg = error;
+                this.error = undefined;
+                alert('In error' + this.msg);
+            });
+    }
+
+    showToast(title, message, variant) {
+        const event = new ShowToastEvent({
+            title: title,
+            message: message,
+            variant: variant
+        });
+        this.dispatchEvent(event);
+    }
+}
+
+XML:
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>59.0</apiVersion>
+    <isExposed>true</isExposed>
+    <targets>
+        <target>lightning__AppPage</target>
+        <target>lightning__RecordPage</target>
+        <target>lightning__HomePage</target>
+        <target>lightningCommunity__Page</target>
+        <target>lightningCommunity__Default</target>
+    </targets>
+</LightningComponentBundle>
+
+
+Apex class:
+
+public without sharing class SampleSurveyController {
+
+    @AuraEnabled
+    public static WrapperResult CreateSurveyInvWrpResult(String CaseId) {
+        String communityId;
+        String surveyId;
+        String strSurveyURL;
+
+        WrapperResult WrpResult = new WrapperResult(null, null);
+
+        try {
+            // Retrieve the community ID and survey ID
+            communityId = [SELECT Id FROM Network WHERE Name = 'demo' LIMIT 1].Id;
+            surveyId = [SELECT Id FROM Survey WHERE Name = 'CSAT 01' LIMIT 1].Id;
+
+            // Fetch the Case record
+            Case con = [SELECT ContactId, Contact.Name FROM Case WHERE Id = :CaseId LIMIT 1];
+
+            if (con.ContactId == null) {
+                throw new MyException('No contact associated with the case.');
+            }
+
+            // Create the survey invitation record
+            SurveyInvitation SInv = new SurveyInvitation();
+            SInv.CommunityId = communityId;
+            SInv.Name = CaseId;
+            SInv.Case__c = CaseId;
+            SInv.ParticipantId = con.ContactId; // Assign the contact as participant
+            SInv.OptionsAllowGuestUserResponse = true;
+            SInv.SurveyId = surveyId;
+            insert SInv;
+
+            SurveyInvitation sInvRecord = [SELECT Id, UUID FROM SurveyInvitation WHERE Id = :SInv.Id];
+            String UniquieInviteId = sInvRecord.UUID;
+            // Construct the survey URL directly
+            strSurveyURL = 'https://demo270-dev-ed.develop.my.site.com/survey/runtimeApp.app?invitationId=' + SInv.Id + '&surveyName=csat_01&UUID=' + UniquieInviteId;
+
+            // Send email to the contact
+            sendSurveyEmail(con.Contact.Name, con.ContactId, strSurveyURL);
+
+            WrpResult = new WrapperResult(false, 'Survey invitation sent successfully.');
+        } 
+        catch (Exception ex) {
+            System.debug('An exception occurred while inserting SurveySubject: ' + ex.getMessage());
+            WrpResult = new WrapperResult(true, ex.getMessage());
+        }
+        return WrpResult;
+    }
+
+    // Method to send survey invitation email
+    public static void sendSurveyEmail(String contactName, Id contactId, String surveyURL) {
+        Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+        email.setToAddresses(new String[]{contactId});
+        email.setSubject('Salesforce Survey');
+        email.setPlainTextBody('Dear '+ contactName +',\n\nPlease complete the survey by clicking the following link:\n\n' + surveyURL + '\n\nThank you,\n Hic Global Solutions');
+        Messaging.sendEmail(new Messaging.SingleEmailMessage[] { email });
+    }
+
+    public class WrapperResult {
+        @AuraEnabled public boolean bError { get; set; }
+        @AuraEnabled public String strMsg { get; set; }
+
+        public WrapperResult(boolean bErr, String strMessage) {
+            this.bError = bErr;
+            this.strMsg = strMessage;
+        }
+    }
+}
+
+Exception Class:
+public  class MyException extends Exception{
+        public void myMethod() {
+            try {
+                // Some code that might throw an exception
+                throw new MyException('An error occurred.');
+            } catch (MyException ex) {
+                // Handle the custom exception
+                System.debug('Custom Exception Message: ' + ex.getMessage());
+            }
+        }
+    
+}
+
+    
