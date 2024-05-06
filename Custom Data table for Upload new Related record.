@@ -1,0 +1,422 @@
+Apex class:
+public with sharing class Summerytable {
+
+    @AuraEnabled(cacheable=true)
+    public static List<CSMT__c> fetchRecord(String contactId) {
+        String queryString = 'SELECT Id';
+        List<CSMT__c> csmtList = new List<CSMT__c>();
+
+        // Constructing the SOQL query string based on the field set
+        for(Schema.FieldSetMember fld :SObjectType.CSMT__c.FieldSets.CM_field_set.getFields()) {
+            queryString += ', ' + fld.getFieldPath();
+        }
+
+        queryString += ' FROM CSMT__c WHERE Product_Type__c = \'CSMT\' AND Investor_Name__c = ' ;
+        queryString +=  '\'' +  contactId + '\'';
+        queryString += ' ORDER BY Issuance_Date__c ASC';
+        System.debug('@@@@find'+queryString);
+
+        // Execute the query and return the results
+        try {
+            csmtList = Database.query(queryString);
+        } catch (Exception ex) {
+            // Catch and handle any exceptions
+            System.debug('Exception occurred while fetching CSMT records: ' + ex.getMessage());
+            throw ex;
+        }
+        return csmtList;
+    }
+
+    @AuraEnabled(cacheable=true)
+    public static List<CSMT__c> fetchCSECRecords(String contactId) {
+        System.debug('contactId' + contactId);
+        String queryString = 'SELECT ';
+        List<CSMT__c> csecList = new List<CSMT__c>();
+        List<String> fieldPaths = new List<String>();
+        try {
+            // Constructing the SOQL query string based on the field set
+            for (Schema.FieldSetMember fld : SObjectType.CSMT__c.FieldSets.CM_field_set.getFields()) {
+                fieldPaths.add(fld.getFieldPath());
+            }
+            queryString += String.join(fieldPaths, ', ');
+            queryString += ' FROM CSMT__c WHERE Product_Type__c = \'CSEC\' AND Investor_Name__c = ' ;
+            queryString +=  '\'' +  contactId + '\'';
+            queryString += ' ORDER BY Issuance_Date__c ASC';
+            System.debug('@@@@find'+queryString);
+            
+            // Execute the query and return the results
+            csecList = Database.query(queryString);
+            System.debug('CSEC Records: ' + csecList); // Adding debug log for fetched records
+        } catch (Exception ex) {
+            // Catch and handle any exceptions
+            System.debug('Exception occurred while fetching CSEC records: ' + ex.getMessage());
+            throw ex;
+        }
+        return csecList;
+    }
+
+    @AuraEnabled(cacheable=true)
+    public static String getFieldSet(String sObjectName, String fieldSetName) {
+        String result = '';
+        try {
+            SObjectType objToken = Schema.getGlobalDescribe().get(sObjectName);
+            Schema.DescribeSObjectResult d = objToken.getDescribe();
+            Map<String, Schema.FieldSet> fieldSetMap = d.fieldSets.getMap();
+
+            if(fieldSetMap.containsKey(fieldSetName)){
+                for(Schema.FieldSetMember f : fieldSetMap.get(fieldSetName).getFields()) {
+                    if(String.isNotBlank(result)){
+                        result += ',';
+                    }
+
+                    String jsonPart = '{';
+                    jsonPart += '"required":"' + (f.getDBRequired() || f.getRequired()) + '",';
+                    jsonPart += '"type":"' + (f.getType()) + '",';
+                    jsonPart += '"label":"' + (f.getLabel()) + '",';
+                    jsonPart += '"name":"' + f.getFieldPath() + '"';
+                    jsonPart += '}';
+                    result += jsonPart;
+                }
+            }
+        } catch(Exception ex) {
+            // Catch and handle any exceptions
+            System.debug('Exception occurred while fetching field set: ' + ex.getMessage());
+            throw ex;
+        }
+        return '[' + result + ']';
+    }
+}
+
+JS
+import { LightningElement, track, wire, api } from 'lwc';
+import fetchRecord from '@salesforce/apex/Summerytable.fetchRecord';
+import fetchCSECRecords from '@salesforce/apex/Summerytable.fetchCSECRecords';
+import getFieldSet from '@salesforce/apex/Summerytable.getFieldSet';
+import { NavigationMixin } from 'lightning/navigation'; // Import NavigationMixin
+import { CurrentPageReference } from 'lightning/navigation';
+
+
+export default class datatable extends NavigationMixin(LightningElement) {
+    @track csmtData;
+    @track csecData;
+    @track csmtColumns;
+    @track csecColumns;
+    @track error;
+    @track isLoading = true;
+    @track contactId;
+    @track recordId;
+
+    connectedCallback() {
+        // Retrieve the Contact Id from the URL query parameters
+        const queryParams = new URLSearchParams(window.location.search);
+        this.contactId = queryParams.get('contactId');
+        console.log('RecordIdssssss', this.recordId);   
+
+    }
+
+    @track recordId;
+    currentPageReference = null; 
+    urlStateParameters = null;
+    recordString = '';
+  
+    @wire(CurrentPageReference)
+    getPageReferenceParameters(currentPageReference) {
+       if (currentPageReference) {
+          console.log(currentPageReference);
+          this.recordId = currentPageReference.attributes.recordId;
+          console.log('recordId:', this.recordId);
+          this.recordString = JSON.stringify(this.recordId);
+          let attributes = currentPageReference.attributes;
+          let states = currentPageReference.state;
+          let type = currentPageReference.type;
+       }
+    }
+
+    // Wire the record retrieval for CSMT
+    @wire(fetchRecord, { contactId: '$recordId' })
+    wiredCSMTRecords({ error, data }) {
+        if (data) {
+            this.csmtData = this.formatData(data);
+            this.isLoading = false;
+            this.fetchCSMTFieldSet();
+            console.log('@@@@data',data);
+        } else if (error) {
+            console.error('Error fetching CSMT records:', error);
+            this.error = error;
+            this.isLoading = false;
+        }
+    }
+   // Method to handle row action for Name field click
+      // Method to handle row action for Name field click
+      handleRowAction(event) {
+        const actionName = event.detail.action.name;
+        const row = event.detail.row;
+        // Check if the action is a click on the 'Name' field
+        if (actionName === 'navigate_to_record') {
+            this.navigateToRecordPage(row.Id);
+        }
+    }
+    
+    // Method to handle navigation to record page
+    navigateToRecordPage(recordId) {
+        console.log('Navigating to record page with Id:', recordId);
+        console.log('record@@', actionName);
+        // Use the Navigate method from NavigationMixin
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: {
+                recordId: this.record.Id,
+                actionName: 'view',
+                objectApiName: 'CSMT__c'
+            }
+        });
+    }
+
+
+    // @wire(fetchCSECRecords, { contactId: '$recordId'})
+    // wiredCSECRecords({ error, data }) {
+    //     if (data) {
+    //         this.csecData = this.formatData(data);
+    //         this.isLoading = false;
+    //         this.fetchCSECFieldSet();
+    //         console.log('@@@@data',data);
+    //     } else if (error) {
+    //         console.error('Error fetching CSMT records:', error);
+    //         this.error = error;
+    //         this.isLoading = false;
+    //     }
+    // }
+
+    connectedCallback(){
+
+        fetchCSECRecords({contactId: this.recordId})
+        .then((result)=>{
+
+            if(result){
+                this.csecData = this.formatData(result);
+                this.isLoading = false;
+                this.fetchCSECFieldSet();
+            }
+
+            console.log('result' , result);
+
+        })
+        .catch((error)=>{
+            if(error){
+                console.error('Error fetching CSMT records  callback:', error);
+                this.error = error;
+                this.isLoading = false;
+
+            }
+
+
+        })
+    }
+    // Fetch CSMT field set
+    fetchCSMTFieldSet() {
+        getFieldSet({ sObjectName: 'CSMT__c', fieldSetName: 'CM_field_set' })
+            .then(result => {
+                this.csmtColumns = JSON.parse(result).map(field => ({
+                    label: field.label,
+                    fieldName: field.name
+                }));
+            })
+            .catch(error => {
+                console.error('Error fetching CSMT field set:', error);
+                this.error = error;
+            });
+    }
+
+    // Wire the record retrieval for CSEC
+    // @wire(fetchCSECRecords)
+    // wiredCSECRecords({ error, data }) {
+    //     if (data) {
+    //         this.csecData = this.formatData(data);
+    //         this.isLoading = false;
+    //         this.fetchCSECFieldSet();
+    //     } else if (error) {
+    //         console.error('Error fetching CSEC records:', error);
+    //         this.error = error;
+    //         this.isLoading = false;
+    //     }
+    // }
+
+    // Fetch CSEC field set
+    fetchCSECFieldSet() {
+        getFieldSet({ sObjectName: 'CSMT__c', fieldSetName: 'CM_field_set' })
+            .then(result => {
+                this.csecColumns = JSON.parse(result).map(field => ({
+                    label: field.label,
+                    fieldName: field.name
+                }));
+            })
+            .catch(error => {
+                console.error('Error fetching CSEC field set:', error);
+                this.error = error;
+            });
+    }
+
+    // Check if CSMT data and columns are available
+    get isCSMTDataAvailable() {
+        return this.csmtData && this.csmtColumns;
+    }
+
+    // Check if CSEC data and columns are available
+    get isCSECDataAvailable() {
+        return this.csecData && this.csecColumns;
+    }
+
+    // Format data to include currency symbols and format date
+    formatData(data) {
+        return data.map(record => ({
+            ...record,
+            Investment_Amount__c: '$' + parseFloat(record.Investment_Amount__c).toFixed(2),
+            Issuance_Date__c: this.formatDate(record.Issuance_Date__c)
+        }));
+    }
+
+    // Format date as "DD-MM-YYYY"
+    formatDate(dateString) {
+        const dateObj = new Date(dateString);
+        const day = dateObj.getDate();
+        const month = dateObj.getMonth() + 1;
+        const year = dateObj.getFullYear();
+
+        // Pad day and month with leading zeros if needed
+        const formattedDay = day < 10 ? '0' + day : day;
+        const formattedMonth = month < 10 ? '0' + month : month;
+
+        return formattedDay + '-' + formattedMonth + '-' + year;
+    }
+    get totalInvestmentAmount() {
+        let totalRedemption = 0;
+        let totalPurchase = 0;
+    
+        if (!this.csmtData || !this.csmtData.length) {
+            console.log('csmtData is empty');
+            return '$ 0.00';
+        }
+    
+        this.csmtData.forEach(record => {
+            if (!record.hasOwnProperty('Transaction_type__c')) {
+                console.log(`Record does not contain Transaction_Type__c field: ${JSON.stringify(record)}`);
+                return;
+            }
+    
+            let amount = parseFloat(record.Investment_Amount__c.replace('$', '')) || 0;
+            if (record.Transaction_type__c === 'Redemption') {
+                totalRedemption += amount;
+            } else if (record.Transaction_type__c === 'Purchase') {
+                totalPurchase += amount;
+            } else {
+                console.log(`Unexpected Transaction_Type__c value: ${record.Transaction_type__c}`);
+            }
+        });
+    
+        if (totalPurchase === 0 && totalRedemption === 0) {
+            console.log('No purchases or redemptions found');
+        }
+    
+        let totalAmount = totalPurchase - totalRedemption;
+        return totalAmount > 0 ? `$ ${totalAmount.toFixed(2)}` : '$ 0.00';
+    }
+    
+    
+    
+    get totalInvestmentAmounts() {
+        let totalRedemption = 0;
+        let totalPurchase = 0;
+        let totalProjectClosed = 0;
+    
+        if (!this.csecData || !this.csecData.length) {
+            console.log('csecData is empty');
+            return '$ 0.00';
+        }
+    
+        this.csecData.forEach(record => {
+            if (!record.hasOwnProperty('Transaction_type__c')) {
+                console.log(`Record does not contain Transaction_Type__c field: ${JSON.stringify(record)}`);
+                return;
+            }
+    
+            let amount = parseFloat(record.Investment_Amount__c.replace('$', '')) || 0;
+            if (record.Transaction_type__c === 'Redemption') {
+                totalRedemption += amount;
+            } else if (record.Transaction_type__c === 'Purchase') {
+                totalPurchase += amount;
+            } else if (record.Transaction_type__c === 'Project Closed') {
+                totalProjectClosed += amount;
+            } else {
+                console.log(`Unexpected Transaction_Type__c value: ${record.Transaction_type__c}`);
+            }
+        });
+    
+        if (totalPurchase === 0 && totalRedemption === 0 && totalProjectClosed === 0) {
+            console.log('No purchases, redemptions or project closed found');
+        }
+    
+        let totalAmount = totalPurchase + totalProjectClosed - totalRedemption;
+        return totalAmount > 0 ? `$ ${totalAmount.toFixed(2)}` : '$ 0.00';
+    }
+    
+}
+
+HTML:
+<template>
+    <!-- CSMT Table -->
+    <template if:true={isCSMTDataAvailable}>
+        <lightning-card variant="Narrow" title="CSMT Summary Table" icon-name="standard:apps">
+            <div class="slds-p-horizontal_small">
+                <lightning-datatable
+                    key-field="Id"
+                    data={csmtData}
+                    columns={csmtColumns}
+                    hide-checkbox-column
+                    resize-column-disabled
+                    onrowaction={handleRowAction}>
+                </lightning-datatable>
+                
+                
+                <!-- Display total investment amount with dollar sign -->
+                <div style="border-top: 1px solid #ccc; padding-top: 10px; display: flex">
+                    <p style="text-align: right; display: inline-block; width: 100%;">
+                        <span style="padding-right: 3.5rem;"><b>Total Amount:</b></span> <span style="padding-right: 4rem;"><b>{totalInvestmentAmount}</b></span>
+                    </p>
+                </div>
+            </div>
+        </lightning-card>
+    </template><br><br>
+    <!-- /CSMT Table -->
+
+    <!-- CSEC Table -->
+    <template if:true={isCSECDataAvailable}>
+        <lightning-card variant="Narrow" title="CSEC Summary Table" icon-name="standard:apps">
+            <div class="slds-p-horizontal_small">
+                <lightning-datatable
+                    key-field="Id"
+                    data={csecData}
+                    columns={csecColumns}
+                    hide-checkbox-column
+                    resize-column-disabled>
+                </lightning-datatable>
+                <!-- Display total investment amount with dollar sign -->
+                <div style="border-top: 1px solid #ccc; padding-top: 10px; display: flex">
+                    <p style="text-align: right; display: inline-block; width: 100%;">
+                        <span style="padding-right: 2.5rem;"><b>Total Amount:</b></span> <span style="padding-right: 4rem;"><b>{totalInvestmentAmounts}</b></span> 
+                    </p>
+                </div>
+            </div>
+        </lightning-card>
+    </template>
+    <!-- /CSEC Table -->
+
+    <!-- Error Message -->
+    <template if:true={error}>
+        <p>Error: {error}</p>
+    </template>
+
+    <!-- Loading Message -->
+    <template if:true={isLoading}>
+        <p>Loading...</p>
+    </template>
+</template>
