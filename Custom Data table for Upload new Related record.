@@ -31,7 +31,7 @@ public with sharing class Summarytable {
             }
     
             // Add ORDER BY clause to sort by Assurance Date in ascending order
-            query += ' ORDER BY Issuance_Date__c ASC';
+            query += ' ORDER BY Issuance_Closing_Date__c ASC';
     
             //execute query
             List<SObject> lstRecords = Database.query(query);
@@ -49,53 +49,56 @@ public with sharing class Summarytable {
     }
     
     @AuraEnabled(cacheable=true)
-    public static String getCSECRecords(String strObjectApiName, String strfieldSetName,
-                                        String criteriaField, String criteriaFieldValue) {
-        Map<String, String> returnMap = new Map<String,String>();
-        try {
-            if (!String.isEmpty(strObjectApiName) && !String.isEmpty(strfieldSetName)) {
-                //get fields from FieldSet
-                SObject sObj = (SObject)(Type.forName('Schema.' + strObjectApiName).newInstance());
-                List<Schema.FieldSetMember> lstFSMember = 
-                    sObj.getSObjectType().getDescribe().fieldSets.getMap().get(strfieldSetName).getFields();
-    
-                //prepare SOQL query based on fieldAPIs    
-                String query = 'SELECT ';
-                for (Schema.FieldSetMember f : lstFSMember) {
-                    query += f.getFieldPath() + ', ';
-                }
-                query += 'Id FROM ' + strObjectApiName;
-    
-                // Add a filter to fetch records where the Product Type is CSEC
-                query += ' WHERE Product_Type__c = \'CSEC\'';
-    
-                // Add a filter to fetch records where Transaction_type__c is not null
-            query += ' AND Transaction_type__c != null';
-    
-                //Just in case criteria field not specified then it will return all records
-                if (!(String.isEmpty(criteriaField) && String.isEmpty(criteriaFieldValue))) {
-                    query += ' AND ' + criteriaField + '=\'' + criteriaFieldValue + '\'';
-                }
-    
-                // Add ORDER BY clause to sort by Assurance Date in ascending order
-                query += ' ORDER BY Issuance_Date__c ASC';
-    
-                //execute query
-                List<SObject> lstRecords = Database.query(query);
-    
-                //prepare a map which will hold fieldList and recordList and return it
-                returnMap.put('FIELD_LIST', JSON.serialize(lstFSMember));
-                returnMap.put('RECORD_LIST', JSON.serialize(lstRecords));
-                return JSON.serialize(returnMap);
+public static String getCSECRecords(String strObjectApiName, String criteriaField, String criteriaFieldValue) {
+    Map<String, String> returnMap = new Map<String,String>();
+    try {
+        if (!String.isEmpty(strObjectApiName)) {
+            // Define the field set name explicitly
+            String strfieldSetName = 'CSEC_field_set';
+
+            // Get fields from FieldSet
+            SObject sObj = (SObject)(Type.forName('Schema.' + strObjectApiName).newInstance());
+            List<Schema.FieldSetMember> lstFSMember = 
+                sObj.getSObjectType().getDescribe().fieldSets.getMap().get(strfieldSetName).getFields();
+
+            // Prepare SOQL query based on fieldAPIs    
+            String query = 'SELECT ';
+            for (Schema.FieldSetMember f : lstFSMember) {
+                query += f.getFieldPath() + ', ';
             }
-        } catch (Exception e) {
-            // Catch any exceptions and log them
-            System.debug('An error occurred: ' + e.getMessage());
+            query += 'Id FROM ' + strObjectApiName;
+
+            // Add a filter to fetch records where the Product Type is CSEC
+            query += ' WHERE Product_Type__c = \'CSEC\'';
+
+            // Add a filter to fetch records where Transaction_type__c is not null
+            query += ' AND Transaction_type__c != null';
+
+            // Just in case criteria field not specified then it will return all records
+            if (!(String.isEmpty(criteriaField) && String.isEmpty(criteriaFieldValue))) {
+                query += ' AND ' + criteriaField + '=\'' + criteriaFieldValue + '\'';
+            }
+
+            // Add ORDER BY clause to sort by Assurance Date in ascending order
+            query += ' ORDER BY Issuance_Closing_Date__c ASC';
+
+            // Execute query
+            List<SObject> lstRecords = Database.query(query);
+
+            // Prepare a map which will hold fieldList and recordList and return it
+            returnMap.put('FIELD_LIST', JSON.serialize(lstFSMember));
+            returnMap.put('RECORD_LIST', JSON.serialize(lstRecords));
+            return JSON.serialize(returnMap);
         }
-        return null;
+    } catch (Exception e) {
+        // Catch any exceptions and log them
+        System.debug('An error occurred: ' + e.getMessage());
     }
+    return null;
+}
+
     }
-    
+
 
 JS
 import { LightningElement, track, wire, api } from 'lwc';
@@ -120,11 +123,7 @@ export default class Datatable extends LightningElement {
 @track csecColumns; // Holds columns for CSEC data
 @track csecTableData; // Holds table data for CSEC
 
-// Fetch record ID from URL query parameters
-connectedCallback() {
-    const queryParams = new URLSearchParams(window.location.search);
-    this.contactId = queryParams.get('contactId');
-}
+
 
 // Get record ID from the current page reference
 currentPageReference = null;
@@ -134,280 +133,480 @@ recordString = '';
 // Fetch record ID from the current page reference
 @wire(CurrentPageReference)
 getPageReferenceParameters(currentPageReference) {
-    if (currentPageReference) {
-        this.recordId = currentPageReference.attributes.recordId;
-        this.recordString = JSON.stringify(this.recordId);
-    }
+if (currentPageReference) {
+this.recordId = currentPageReference.attributes.recordId;
+this.recordString = JSON.stringify(this.recordId);
+}
 }
 
 // Fetch CSMT and CSEC data on component initialization
 connectedCallback() {
-    this.fetchCSMTData(); // Fetch CSMT data
-    this.fetchCSECData(); // Fetch CSEC data
+console.log("connected....");
+this.fetchCSMTData(); // Fetch CSMT data
+this.fetchCSECData(); // Fetch CSEC data
+
+//const queryParams = new URLSearchParams(window.location.search);
+// this.contactId = queryParams.get('contactId');
+
+
 }
 
 // Fetch CSMT data using the Apex method
 fetchCSMTData() {
-    // Initialize variables
-    let firstTimeEntry = false;
-    let firstFieldAPI;
+// Initialize variables
+let firstTimeEntry = false;
+let firstFieldAPI;
 
-    // Call the Apex method to fetch CSMT data
-    getFieldsAndRecords({
-        strObjectApiName: this.SFDCobjectApiName,
-        strfieldSetName: this.fieldSetName,
-        criteriaField: this.criteriaFieldAPIName,
-        criteriaFieldValue: this.recordId
-    })
-        .then(data => {
-            // Process data from the Apex method
-            let objStr = JSON.parse(data);
-            let listOfFields = JSON.parse(Object.values(objStr)[1]);
-            let listOfRecords = JSON.parse(Object.values(objStr)[0]);
-            let items = [];
+// Call the Apex method to fetch CSMT data
+getFieldsAndRecords({
+strObjectApiName: this.SFDCobjectApiName,
+strfieldSetName: this.fieldSetName,
+criteriaField: this.criteriaFieldAPIName,
+criteriaFieldValue: this.recordId
+})
+.then(data => {
 
-            // Prepare columns based on the fields
-            listOfFields.map(element => {
-                if (
-                    this.firstColumnAsRecordHyperLink != null &&
-                    this.firstColumnAsRecordHyperLink == 'Yes' &&
-                    firstTimeEntry == false
-                ) {
-                    firstFieldAPI = element.fieldPath;
-                    items = [
-                        ...items,
-                        {
-                            label: element.label,
-                            fieldName: 'URLField',
-                            fixedWidth: 150,
-                            type: 'url',
-                            typeAttributes: {
-                                label: {
-                                    fieldName: element.fieldPath
-                                },
-                                target: '_blank'
-                            },
-                            sortable: true
-                        }
-                    ];
-                    firstTimeEntry = true;
-                } else {
-                    items = [...items, { label: element.label, fieldName: element.fieldPath }];
+  
+    
+    // console.log('@@@@@@@@@@@@@3');
+    // Process data from the Apex method
+    let objStr = JSON.parse(data);
+    let listOfFields = JSON.parse(Object.values(objStr)[1]);
+    let listOfRecords = JSON.parse(Object.values(objStr)[0]);
+    let items = [];
+
+    // Prepare columns based on the fields
+    listOfFields.map(element => {
+        if (
+            this.firstColumnAsRecordHyperLink != null &&
+            this.firstColumnAsRecordHyperLink == 'Yes' &&
+            firstTimeEntry == false
+        ) {
+            firstFieldAPI = element.fieldPath;
+            items = [
+                ...items,
+                {
+                    label: element.label,
+                    fieldName: 'URLField',
+                    fixedWidth: 150,
+                    type: 'url',
+                    typeAttributes: {
+                        label: {
+                            fieldName: element.fieldPath
+                        },
+                        target: '_blank'
+                    },
+                    sortable: true
                 }
-            });
+            ];
+            firstTimeEntry = true;
+        } else {
+            items = [...items, { label: element.label, fieldName: element.fieldPath }];
+        }
+    });
 
-            // Assign columns and formatted data to the respective variables
-            this.columns = items;
-            this.tableData = this.formatData(listOfRecords); // Format the data here
 
-            // If first column should be a hyperlink, add URL field
-            if (this.firstColumnAsRecordHyperLink != null && this.firstColumnAsRecordHyperLink == 'Yes') {
-                let URLField;
-                this.tableData = this.tableData.map(item => {
-                    URLField = '/lightning/r/' + this.SFDCobjectApiName + '/' + item.Id + '/view';
-                    return { ...item, URLField };
+
+    // Assign columns and formatted data to the respective variables
+    this.columns = items;
+    this.tableData = this.formatData(listOfRecords); // Format the data here
+    // console.log('@@@@@@@@@@@@@##');
+    // console.log(json.stringify(tableData));
+    console.log(this.tableData);
+    // If first column should be a hyperlink, add URL field
+    if (this.firstColumnAsRecordHyperLink != null && this.firstColumnAsRecordHyperLink == 'Yes') {
+        let URLField;
+        this.tableData = this.tableData.map(item => {
+            // console.log('@@@@@@@@@@@@@##11 : '+JSON.stringify(item));
+            URLField = '/lightning/r/' + this.SFDCobjectApiName + '/' + item.Id + '/view';
+            if(item.Transaction_type__c ==='Redemption'){
+                
+                console.log('Type1 ==', item.Investment_Amount__c);
+
+                // Remove the dollar sign and commas, then convert the string to a number
+                let amount = parseFloat(item.Investment_Amount__c.replace(/\$|,/g, ''));
+                
+                // Make the amount negative
+                if(amount > 0){
+                    amount = amount * -1;
+                }               
+                console.log('amount',amount);
+                
+                // Convert the number back to a string and add the dollar sign
+                // let originalAmount = amount;
+                // console.log('originalAmount',originalAmount);
+                // item.Investment_Amount__c = '$' + amount.toFixed(2);
+
+                item.Investment_Amount__c = amount.toLocaleString('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
                 });
-
-                this.tableData = this.tableData.filter(item => item.fieldPath != firstFieldAPI);
+                // item.Investment_Amount__c = '$'+ parseFloat(originalAmount.toFixed(2));
+                
+                console.log('Test==', item.Investment_Amount__c);
+                // console.log('Type2 ==', item.Investment_Amount__c);
+            }
+            else{
+                // console.log('@@@@ item.Investment_Amount__c = ',item.Investment_Amount__c );
+                // console.log('$$$$$$2');
             }
 
-            this.error = undefined; // Clear any previous errors
-        })
-        .catch(error => {
-            this.error = error; // Handle any errors
-            this.tableData = undefined; // Clear table data
+
+
+            return { ...item, URLField };
         });
+        // console.log('################## : '+JSON.stringify(this.tableData));
+        this.tableData = this.tableData.filter(item => item.fieldPath != firstFieldAPI);
+    }
+
+    console.log('Table Dataa' , JSON.stringify(this.tableData));
+
+
+    this.error = undefined; // Clear any previous errors
+})
+.catch(error => {
+    this.error = error; // Handle any errors
+    this.tableData = undefined; // Clear table data
+});
 }
 
 // Fetch CSEC data using the Apex method
 fetchCSECData() {
-    // Initialize variables
-    let firstTimeEntry = false;
-    let firstFieldAPI;
+// Initialize variables
+let firstTimeEntry = false;
+let firstFieldAPI;
 
-    // Call the Apex method to fetch CSEC data
-    getCSECRecords({
-        strObjectApiName: this.SFDCobjectApiName,
-        strfieldSetName: this.fieldSetName,
-        criteriaField: this.criteriaFieldAPIName,
-        criteriaFieldValue: this.recordId
-    })
-        .then(data => {
-            // Process data from the Apex method
-            let objStr = JSON.parse(data);
-            let listOfFields = JSON.parse(Object.values(objStr)[1]);
-            let listOfRecords = JSON.parse(Object.values(objStr)[0]);
-            let items = [];
+console.log('Before getCSECRecords');
+// Call the Apex method to fetch CSEC data
+getCSECRecords({
+strObjectApiName: this.SFDCobjectApiName,
+strfieldSetName: this.fieldSetName,
+criteriaField: this.criteriaFieldAPIName,
+criteriaFieldValue: this.recordId
+}).then(data => {
+    
+    // Process data from the Apex method
+    let objStr = JSON.parse(data);
+    let listOfFields = JSON.parse(Object.values(objStr)[1]);
+    let listOfRecords = JSON.parse(Object.values(objStr)[0]);
+    let items = [];
 
-            // Prepare columns based on the fields
-            listOfFields.map(element => {
-                if (
-                    this.firstColumnAsRecordHyperLink != null &&
-                    this.firstColumnAsRecordHyperLink == 'Yes' &&
-                    firstTimeEntry == false
-                ) {
-                    firstFieldAPI = element.fieldPath;
-                    items = [
-                        ...items,
-                        {
-                            label: element.label,
-                            fieldName: 'URLField',
-                            fixedWidth: 150,
-                            type: 'url',
-                            typeAttributes: {
-                                label: {
-                                    fieldName: element.fieldPath
-                                },
-                                target: '_blank'
-                            },
-                            sortable: true
-                        }
-                    ];
-                    firstTimeEntry = true;
-                } else {
-                    items = [...items, { label: element.label, fieldName: element.fieldPath }];
+
+    // console.log('@@@@@@@@@@@@@@@@ ');
+    // console.log(JSON.stringify(listOfFields));
+    // console.log(listOfFields);
+
+    // typeAttributes:{
+    //     month: "2-digit",
+    //     day: "2-digit"
+    // }
+
+    // Prepare columns based on the fields
+    listOfFields.map(element => {
+        if (
+            this.firstColumnAsRecordHyperLink != null &&
+            this.firstColumnAsRecordHyperLink == 'Yes' &&
+            firstTimeEntry == false
+        ) {
+            firstFieldAPI = element.fieldPath;
+            
+            items = [
+                ...items,
+                {
+                    label: element.label,
+                    fieldName: 'URLField',
+                    fixedWidth: 150,
+                    type: 'url',
+                    typeAttributes: {
+                        label: {
+                            fieldName: element.fieldPath
+                        },
+                        target: '_blank'
+                    },
+                    sortable: true
                 }
-            });
+            ];
+            firstTimeEntry = true;
+        } else {
+            items = [...items, { label: element.label, fieldName: element.fieldPath }];
+        }
+    });
 
-            // Assign columns and formatted data to the respective variables
-            this.csecColumns = items;
-            this.csecTableData = this.formatData(listOfRecords); // Format the data here
+    // Assign columns and formatted data to the respective variables
+    this.csecColumns = items;
+    this.csecTableData = this.formatData(listOfRecords); // Format the data here
 
-            // If first column should be a hyperlink, add URL field
-            if (this.firstColumnAsRecordHyperLink != null && this.firstColumnAsRecordHyperLink == 'Yes') {
-                let URLField;
-                this.csecTableData = this.csecTableData.map(item => {
-                    URLField = '/lightning/r/' + this.SFDCobjectApiName + '/' + item.Id + '/view';
-                    return { ...item, URLField };
+    // If first column should be a hyperlink, add URL field
+    if (this.firstColumnAsRecordHyperLink != null && this.firstColumnAsRecordHyperLink == 'Yes') {
+        let URLField;
+        this.csecTableData = this.csecTableData.map(item => {
+            URLField = '/lightning/r/' + this.SFDCobjectApiName + '/' + item.Id + '/view';
+
+            //Check Redemption amount is less than 0 if not chnage its sign to -ve
+            if(item.Transaction_type__c ==='Redemption' || item.Transaction_type__c ==='Project Closed'){
+               
+                // Remove the dollar sign and convert the string to a number
+                console.log("Before parse",item.Investment_Amount__c);
+                let amount = parseFloat(item.Investment_Amount__c.replace(/\$|,/g, ''));
+                console.log('****************');
+                console.log('Amount after parse' , amount);
+                // Make the amount negative
+                if(amount > 0){
+                    amount = amount * -1;
+                }
+
+                // Convert the number back to a string and add the dollar sign
+                // let originalAmount = amount;
+                // item.Investment_Amount__c = '$' + amount.toFixed(2);
+                item.Investment_Amount__c = amount.toLocaleString('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
                 });
+                // item.Investment_Amount__c = '$'+ parseFloat(originalAmount.toFixed(2));
+              
+                console.log('*************** item.Investment_Amount__c',item.Investment_Amount__c);
+                console.log('********* type of ****** item.Investment_Amount__c',typeof item.Investment_Amount__c);
+               // item.Investment_Amount__c = parseFloat(item.Investment_Amount__c.replace())
 
-                this.csecTableData = this.csecTableData.filter(item => item.fieldPath != firstFieldAPI);
+            }
+            else{
+                // console.log('@@@@ item.Investment_Amount__c = ',item.Investment_Amount__c );
+                // console.log('$$$$$$2');
             }
 
-            this.error = undefined; // Clear any previous errors
-        })
-        .catch(error => {
-            this.error = error; // Handle any errors
-            this.csecTableData = undefined; // Clear table data
+            //Check Project Closed amount is less than 0 if not chnage its sign to -ve
+            // if(item.Transaction_type__c ==='Project Closed'){
+            //     // console.log('$$$$$$1');
+            //     // console.log('Type1 ==', typeof(item.Investment_Amount__c));
+            //     // console.log('Type1 ==', item.Investment_Amount__c);
+            //     // Remove the dollar sign and convert the string to a number
+            //     let amount = parseFloat(item.Investment_Amount__c.replace('$', ''));
+            //     // Make the amount negative
+            //     if(amount > 0){
+            //         amount = amount * -1;
+            //     }
+
+            //     // Convert the number back to a string and add the dollar sign
+            //     item.Investment_Amount__c = '$' + amount.toFixed(2);
+            //     // console.log('Type2 ==', typeof(item.Investment_Amount__c));
+            //     // console.log('Type2 ==', item.Investment_Amount__c);
+            // }
+            // else{
+            //     // console.log('@@@@ item.Investment_Amount__c = ',item.Investment_Amount__c );
+            //     // console.log('$$$$$$2');
+            // }
+
+            return { ...item, URLField };
         });
+
+        this.csecTableData = this.csecTableData.filter(item => item.fieldPath != firstFieldAPI);
+    }
+
+    this.error = undefined; // Clear any previous errors
+})
+.catch(error => {
+    this.error = error; // Handle any errors
+    this.csecTableData = undefined; // Clear table data
+});
 }
 
 formatData(data) {
     return data.map(record => ({
         ...record,
-        Investment_Amount__c: record.Investment_Amount__c ? ('$' + parseFloat(record.Investment_Amount__c).toFixed(2)) : null,
-        Issuance_Date__c: this.formatDate(record.Issuance_Date__c)
+        Investment_Amount__c: record.Investment_Amount__c
+            ? new Intl.NumberFormat('en-US', {
+                  style: 'currency',
+                  currency: 'USD',
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+              }).format(parseFloat(record.Investment_Amount__c))
+            : '$ 0.00',
+        Issuance_Closing_Date__c: this.formatDate(record.Issuance_Closing_Date__c),
     }));
 }
 
 
-// Format date as "DD-MM-YYYY"
-formatDate(dateString) {
-    const dateObj = new Date(dateString);
-    if (isNaN(dateObj.getTime())) { // Check if the date is invalid
-        return null; // Return null if the date is not valid
-    } else {
-        const day = dateObj.getDate();
-        const month = dateObj.getMonth() + 1;
-        const year = dateObj.getFullYear();
-
-        const formattedDay = day < 10 ? '0' + day : day;
-        const formattedMonth = month < 10 ? '0' + month : month;
-
-        return formattedDay + '-' + formattedMonth + '-' + year;
+// Format date as "MM/DD/YYYY"
+ convertDateFormat(dateString) {
+    var newDateString = '';
+    if (dateString == null) {
+        newDateString = null;
+    }else{
+    var dateParts = dateString.split('-');
+    // Rearrange the parts to the desired format
+    newDateString = dateParts[1] + '/' + dateParts[2] + '/' + dateParts[0];
     }
+    console.log('new Date String',newDateString);
+    return newDateString;
 }
 
-// Calculate total investment amount for CSMT data
+formatDate(dateString) {
+
+    console.log('Input dateString:', dateString);
+    console.log('@@@@@@@@@@@@@@= dateString '+dateString);
+    console.log('dateString type', typeof dateString);
+    try {
+        var convertedString = this.convertDateFormat(dateString);
+        console.log('convertedString:' , convertedString);
+
+    } catch (error) {
+        console.log(error);
+
+    }
+    return convertedString;
+
+    // Parse the date string into a Date object my code start
+    // const dateObj = new Date(dateString);
+
+    // // Extract the day, month, and year
+    // const day = dateObj.getDate();
+    // const month = dateObj.getMonth() + 1; // Months are zero-based
+    // const year = dateObj.getFullYear();
+
+    // // Format the date as "M/D/YYYY"
+    // const formattedDate = `${month}/${day}/${year}`;
+
+    // return formattedDate;
+    // //my code end
+    //const dateObj = new Date(dateString);
+    // console.log('Parsed dateObj:', dateObj);
+
+    //if (isNaN(dateObj.getTime())) { // Check if the date is invalid
+    // console.log('Invalid date. Returning null.');
+    //return null; // Return null if the date is not valid
+    // } else {
+    //     console.log('@@@@@@@@@@@@@@= dateObj '+dateObj);
+    // const day = dateObj.getDate();
+    // console.log('####### date',day);
+    // const month = dateObj.getMonth() + 1;
+    // console.log('#######month',month);
+    // const year = dateObj.getFullYear();
+    // console.log('#######year',year);
+
+    // console.log('Extracted day:', day);
+    // console.log('Extracted month:', month);
+    // console.log('Extracted year:', year);
+
+    // // const formattedDay = day < 10 ? '0' + day : day;
+    // // const formattedMonth = month < 10 ? '0' + month : month;
+
+    // // console.log('Formatted day:', formattedDay);
+    // // console.log('Formatted month:', formattedMonth);
+
+    // // const formattedDate = formattedMonth + '/' + formattedDay + '/' + year;
+    // const formattedDate = (dateObj.getMonth()+1+'/'+dateObj.getDate()+'/'+dateObj.getFullYear());
+    // console.log('############# Formatted date:', formattedDate);
+
+    // return formattedDate;
+    // }
+}
+// calculate total amount
 get totalInvestmentAmount() {
     let totalRedemption = 0;
     let totalPurchase = 0;
 
     if (!this.tableData || !this.tableData.length) {
-        console.log('csmtData is empty');
+        // console.log('csmtData is empty');
         return '$ 0.00';
     }
 
     this.tableData.forEach(record => {
         if (!record.hasOwnProperty('Transaction_type__c')) {
-            console.log(`Record does not contain Transaction_Type__c field: ${JSON.stringify(record)}`);
+            // console.log(`Record does not contain Transaction_Type__c field: ${JSON.stringify(record)}`);
             return;
         }
 
         // Add null check before calling replace method
-        let amount = record.Investment_Amount__c ? parseFloat(record.Investment_Amount__c.replace('$', '')) || 0 : 0;
+        let amount = record.Investment_Amount__c ? parseFloat(record.Investment_Amount__c.replace(/\$|,/g, '')) || 0 : 0;
 
         if (record.Transaction_type__c === 'Redemption') {
+            // Redemptions are always negative, so subtract from total redemption
             totalRedemption += amount;
+            console.log(' amount',record.Transaction_type__c,amount);
         } else if (record.Transaction_type__c === 'Purchase') {
             totalPurchase += amount;
+            console.log('amount',record.Transaction_type__c,amount);
         } else {
-            console.log(`Unexpected Transaction_Type__c value: ${record.Transaction_type__c}`);
+            // console.log(`Unexpected Transaction_Type__c value: ${record.Transaction_type__c}`);
         }
     });
 
     if (totalPurchase === 0 && totalRedemption === 0) {
-        console.log('No purchases or redemptions found');
+        // console.log('No purchases or redemptions found');
     }
 
+    // Calculate the total amount by adding total purchase and total redemption
     let totalAmount = totalPurchase + totalRedemption;
-    return totalAmount > 0 ? `$ ${totalAmount.toFixed(2)}` : '$ 0.00';
+
+    if(totalAmount<0){
+        return '$ 0.00';
+    }else{
+        const formattedTotalAmount = totalAmount.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return formattedTotalAmount;
+    }
+    // Format the total amount as currency
+    
+    // console.log('Total Amount:', formattedTotalAmount);
+
+    
 }
 
-
- // Calculate total investment amount for CSEC data
-
+// Calculate total investment amount for CSEC data
 get totalInvestmentAmounts() {
-    let totalRedemption = 0;
-    let totalPurchase = 0;
-    let totalProjectClosed = 0;
+let totalRedemption = 0;
+let totalPurchase = 0;
+let totalProjectClosed = 0;
 
-    if (!this.csecTableData || !this.csecTableData.length) {
-        console.log('csecData is empty');
-        return '$ 0.00';
-    }
+if (!this.csecTableData || !this.csecTableData.length) {
+// console.log('csecData is empty');
+return '$ 0.00';
+}
 
-    this.csecTableData.forEach(record => {
-        if (!record.hasOwnProperty('Transaction_type__c')) {
-            console.log(`Record does not contain Transaction_Type__c field: ${JSON.stringify(record)}`);
-            return;
-        }
+this.csecTableData.forEach(record => {
+if (!record.hasOwnProperty('Transaction_type__c')) {
+    // console.log(`Record does not contain Transaction_Type__c field: ${JSON.stringify(record)}`);
+    return;
+}
 
-        // Add null check before calling replace method
-        let amount = record.Investment_Amount__c ? parseFloat(record.Investment_Amount__c.replace('$', '')) || 0 : 0;
+// Add null check before calling replace method
+let amount = record.Investment_Amount__c ? parseFloat(record.Investment_Amount__c.replace(/\$|,/g, '')) || 0 : 0;
 
-        if (record.Transaction_type__c === 'Redemption') {
-            totalRedemption += amount;
-        } else if (record.Transaction_type__c === 'Purchase') {
-            totalPurchase += amount;
-        } else if (record.Transaction_type__c === 'Project Closed') {
-            totalProjectClosed += amount;
-        } else {
-            console.log(`Unexpected Transaction_Type__c value: ${record.Transaction_type__c}`);
-        }
-    });
+if (record.Transaction_type__c === 'Redemption') {
+    totalRedemption += amount;
+} else if (record.Transaction_type__c === 'Purchase') {
+    totalPurchase += amount;
+} else if (record.Transaction_type__c === 'Project Closed') {
+    totalProjectClosed += amount;
+} else {
+    // console.log(`Unexpected Transaction_Type__c value: ${record.Transaction_type__c}`);
+}
+});
 
-    if (totalPurchase === 0 && totalRedemption === 0 && totalProjectClosed === 0) {
-        console.log('No purchases, redemptions or project closed found');
-    }
+if (totalPurchase === 0 && totalRedemption === 0 && totalProjectClosed === 0) {
+// console.log('No purchases, redemptions or project closed found');
+}
 
-    // Subtract total redemption from total purchase
-    let remainingAmount = totalPurchase + totalRedemption;
+// Subtract total redemption from total purchase
+let remainingAmount = totalPurchase + totalRedemption;
 
-    // Subtract total project closed from remaining amount
-    let totalAmount = remainingAmount +totalProjectClosed;
+// Subtract total project closed from remaining amount
+let totalAmount = remainingAmount + totalProjectClosed;
 
-    return totalAmount > 0 ? `$ ${totalAmount.toFixed(2)}` : '$ 0.00';
+return totalAmount > 0 ? `$ ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$ 0.00';
 }
 
 // Check if CSMT data is available
 get isCSMTDataAvailable() {
-    return this.tableData && this.columns;
+return this.tableData && this.columns;
 }
 
 // Check if CSEC data is available
 get isCSECDataAvailable() {
-    return this.csecTableData && this.csecColumns;
+return this.csecTableData && this.csecColumns;
 }
 }
 
