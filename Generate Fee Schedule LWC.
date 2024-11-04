@@ -1,0 +1,1578 @@
+Apex Class:
+/ This is a public class named 'OpportunityInvestorController' with sharing rules enforced.
+
+public with sharing class OpportunityInvestorController {
+
+  private static String selectedfacilityNo;
+  private static String selectedtier;
+  private static String maxtierNo;
+  private static String maxfacilityNo;
+  
+  
+  // Wrapper class to encapsulate Investor and related Lender and Opportunity data
+  
+  public class InvestorWrapper {
+      public Investor__c investor { get; set; }
+      public String lenderShortName { get; set; }
+      public Opportunity opportunity { get; set; }
+      public String roundedGrossInterestRate { get; set; }
+      public String roundedNetInterestRate { get; set; }
+     
+      
+      public InvestorWrapper(Investor__c inv, String shortName, Opportunity opp, OpportunityInvestorController controller) {
+          try {
+              this.investor = inv;
+              this.lenderShortName = shortName;
+              this.opportunity = opp;
+              
+              if (inv.Gross_Interest_Rate__c != null) {
+                  this.roundedGrossInterestRate = controller.getRoundedValueWithoutPercentage(inv.Gross_Interest_Rate__c);
+              }
+              
+              if (inv.Net_Interest_Rate__c != null) {
+                  this.roundedNetInterestRate = controller.getRoundedValueWithoutPercentage(inv.Net_Interest_Rate__c);
+              }
+
+          } catch (Exception ex) {
+              System.debug('Error occurred in InvestorWrapper constructor: ' + ex.getMessage());
+              System.debug('Stack trace: ' + ex.getStackTraceString());
+              
+              // Initialize with default values to prevent null pointer exceptions
+              this.investor = new Investor__c();
+              this.lenderShortName = '';
+              this.opportunity = new Opportunity();
+              this.roundedGrossInterestRate = '';
+              this.roundedNetInterestRate = '';
+          }
+      }
+  }
+  
+      //initializing variables
+      public Id opportunityId { get; set; }
+      public List<InvestorWrapper> investors { get; set; }
+      public Opportunity opportunity { get; set; }
+      public String finalSignoffUserName { get; set; }
+      public Decimal totalNewMoney { get; set; }
+      public Decimal totalFormula1 { get; set; }
+      public Decimal totalFormula2 { get; set; }
+      public Decimal totalFormula3 { get; set; }
+      public Decimal totalUtilization { get; set; }
+      public Decimal totalCSMCSF { get; set; }
+      public Decimal totalNetInterestRate { get; set; }
+      public Decimal totalInvCF { get; set; }
+      public Decimal totalCSMCCF { get; set; }
+      public Decimal totalFormula4 { get; set; }
+      public Decimal totalServicing { get; set; }
+      public Decimal totalOrignation { get; set; }
+      public Decimal totalCompentation { get; set; }
+      public Decimal servicingfees { get; set; }
+      public Decimal sumProductCSMCSF { get; set; }
+      public Decimal commitmentfees { get; set; }
+      public Decimal totalServicingbetter { get; set; }
+      public Decimal totalCommitmentbetter { get; set; }
+      public String note { get; set; }
+      public Decimal sumTypeA { get; set; }
+      public Decimal sumTypeB { get; set; }
+      public Decimal totalservicingfeeBudget { get; set; }
+      public Decimal totalcommitmentfeeBudget { get; set; }
+      public String facilityNumber { get; set; }
+      public String tierNumber { get; set; }
+      public String maxFacilityNumber {get;set;}
+     public String maxTierNumber {get;set;}
+     public Decimal invServicingfeeBudget { get; set; }
+
+      @AuraEnabled
+      public static String facilityNo { get; set; }
+      @AuraEnabled
+      public static String tier { get; set; }
+  
+  // Constructor
+  public OpportunityInvestorController() {
+      this.opportunityId = ApexPages.currentPage().getParameters().get('id');
+      this.note = ApexPages.currentPage().getParameters().get('note');
+      this.facilityNumber = ApexPages.currentPage().getParameters().get('selectedfacilityNo');
+      this.tierNumber = ApexPages.currentPage().getParameters().get('selectedtier');
+      this.maxFacilityNumber = ApexPages.currentPage().getParameters().get('maxfacilityNo');
+      this.maxTierNumber = ApexPages.currentPage().getParameters().get('maxtierNo');
+
+      System.debug('$$ Facility No: ' + this.facilityNumber );
+      System.debug('$$ Tier: ' + this.tierNumber);
+      System.debug('$$ MAX Facility No: ' + this.maxFacilityNumber );
+      System.debug('$$ MAX Tier: ' + this.maxTierNumber);
+      
+      
+      if (String.isNotBlank(this.note)) {
+          // Decode the URL-encoded note
+          this.note = EncodingUtil.urlDecode(this.note, 'UTF-8');
+          System.debug('******Note: ' + this.note);
+          
+          // Escape HTML characters to prevent XSS attacks
+          this.note = this.note.escapeHtml4();
+          System.debug('@@@@@Note: ' + this.note);
+          
+          // Truncate the note if it's too long
+          if (this.note.length() > 1000) { // Adjust the number as needed
+              this.note = this.note.substring(0, 1000) + '...';
+          }
+          
+      }
+
+      System.debug('Opportunity Id: ' + this.opportunityId);
+      
+      
+      investors = new List<InvestorWrapper>();
+
+      opportunityId = this.opportunityId;
+      system.debug('######OpportunityId '+this.opportunityId);
+      
+      if (opportunityId != null) {
+          opportunity = getOpportunity(opportunityId);
+          finalSignoffUserName = getFinalSignoffUserName(opportunity);
+          List<Investor__c> investorRecords = getRelatedInvestors(opportunityId,this.facilityNumber, this.tierNumber);
+          Map<Id, String> lenderNames = fetchLenderNames(investorRecords);
+          
+          totalNewMoney = 0; // Initialize the total new money amount
+          totalFormula1 = 0;
+          totalFormula2 = 0;
+          totalFormula3 = 0;
+          totalUtilization = 0;
+          totalCSMCSF = 0;
+          totalNetInterestRate = 0;
+          totalInvCF = 0;
+          totalCSMCCF = 0;
+          totalFormula4 = 0;
+          totalServicing = 0;
+          totalOrignation = 0;
+          totalCompentation = 0;
+          servicingfees = 0;
+          sumProductCSMCSF = 0;
+          commitmentfees = 0;
+          totalServicingbetter = 0;
+          totalCommitmentbetter = 0;
+          sumTypeA =0;
+          sumTypeB = 0;
+          totalservicingfeeBudget = 0;
+          totalcommitmentfeeBudget = 0;
+          invServicingfeeBudget = 0;
+          
+          try{
+          for (Investor__c inv : investorRecords) {
+              investors.add(new InvestorWrapper(inv, lenderNames.get(inv.Lender__c), opportunity, this));
+              
+              //Do Calculation to get total of Investor records
+              totalNewMoney += inv.Loan_Amount__c != null ? inv.Loan_Amount__c : 0; // Sum up the new money amount
+              System.debug('Total New Money : '+totalNewMoney);
+              totalFormula1 += inv.Formula1__c != null ? inv.Formula1__c : 0; // Sum up the formula1 (Intrest) column of Investor table
+              totalFormula2 += inv.Formula2__c != null ? inv.Formula2__c : 0; // Sum up the formula2 (Total Fee $) column of Investor table
+              totalFormula3 += inv.Formula3__c != null ? inv.Formula3__c : 0; // Sum up the formula3 (Net Fee to investor) column of Investor table
+              
+              //**** Total Calculation for Compensation Table *****
+              totalServicing += inv.Formula5__c != null ? inv.Formula5__c : 0; // Sum up the formula5 (servicing formula total) column of compenstion table 
+              System.debug('&&&& Servicing fee : '+totalServicing);
+              totalOrignation += inv.Formula6__c != null ? inv.Formula6__c : 0; // Sum up the formula6 (Orignation formula total) column of compenstion table  
+              totalCompentation += inv.Formula7__c != null ? inv.Formula7__c : 0; // Sum up the formula7 (Compentation formula total) column of compenstion table  
+              
+              // Calculate Utilization_Inv total (column: Utilization) of Investor table using SUMPRODUCT formula of excel
+              totalUtilization += inv.Loan_Amount__c != null && inv.Utilization_Inv__c != null ? 
+                  (inv.Loan_Amount__c * inv.Utilization_Inv__c) : 0;
+              System.debug('Total Utilization : '+totalUtilization);
+              
+              // Calculate total of CSMC SF % (column: CSMC SF % ) of Investor table using SUMPRODUCT formula of excel
+              totalCSMCSF += inv.Loan_Amount__c != null && inv.CSMC_Inv_SF__c != null ? 
+                  (inv.Loan_Amount__c * inv.CSMC_Inv_SF__c) : 0;
+              System.debug('Total totalCSMCSF : '+totalCSMCSF);
+              
+              // Calculate total of Net Interest Rate (column: Investor Rate Net) of Investor table using SUMPRODUCT formula of excel
+              totalNetInterestRate += inv.Loan_Amount__c != null && inv.Net_Interest_Rate__c != null ? 
+                  (inv.Loan_Amount__c * getNumericValue(inv.Net_Interest_Rate__c)) : 0;
+              System.debug('Total totalNetInterest : '+totalNetInterestRate);
+              System.debug('Net Intrest Rate: '+getNumericValue(inv.Net_Interest_Rate__c));
+              
+              // Calculate total CSMC CF % (column: CSMC Fee %) of Investor table using SUMPRODUCT formula of excel
+              totalCSMCCF += inv.Loan_Amount__c != null && inv.Inv_CF_CSMC__c != null ? 
+                  (inv.Loan_Amount__c * inv.Inv_CF_CSMC__c) : 0;
+              System.debug('Total totalCSMCCF : '+totalCSMCCF);
+              
+              // Calculate total of Formula4 (Investor Fee Net) of Investor table using SUMPRODUCT formula of excel
+              totalFormula4 += inv.Loan_Amount__c != null && inv.Formula4__c != null ? 
+                  (inv.Loan_Amount__c * inv.Formula4__c) : 0;
+              System.debug('Total Formula4 : '+totalFormula4); 
+              
+              //ServicingFee calualtion logic based on TYpe of Investor for To be Added table's Budget column
+
+              System.debug('Loan Amount## : '+inv.Loan_Amount__c );
+              System.debug('Forecasting fee## : '+(inv.Forecast_Servicing_Fee__c * 10000));
+              invServicingfeeBudget += (inv.Loan_Amount__c * (inv.Forecast_Servicing_Fee__c * 10000));
+              System.debug('invServicingfeeBudget## : '+invServicingfeeBudget);
+
+              // System.debug('Forecasting fee## : '+(inv.CSMC_Inv_SF__c * 10000));
+              // invServicingfeeBudget += (inv.Loan_Amount__c * (inv.CSMC_Inv_SF__c * 10000));
+              // System.debug('invServicingfeeBudget## : '+invServicingfeeBudget);
+
+          }
+          
+              if (totalNewMoney > 0) {
+                  
+                  //******Investor Table Calculation******
+                  
+                  //total formulas divide by totalNewMoney to get sumproduct (Using SUMPRODUCT formula of excel)
+
+                  //Logic to calculate sumproduct for Utilization column of Investor table
+                  totalUtilization = (totalUtilization /totalNewMoney).setScale(2, RoundingMode.HALF_UP);
+                  System.debug('@@@@Total Utilization : '+totalUtilization);
+                  
+                  //Logic to calculate sumproduct for "CSMC SF %" column of Investor table
+                  sumProductCSMCSF = totalCSMCSF;
+                  System.debug('#### Sumproduct : '+sumProductCSMCSF);
+                  totalCSMCSF = (totalCSMCSF /totalNewMoney);
+                  totalCSMCSF= totalCSMCSF;
+                  totalCSMCSF = (totalCSMCSF).setScale(2, RoundingMode.HALF_UP);
+                  System.debug('@@@@Total CSMC SF : '+totalCSMCSF);
+                  
+                  //Logic to calculate sumproduct for "Investor Rate Net" column of Investor table
+                  totalNetInterestRate = (totalNetInterestRate /totalNewMoney).setScale(2, RoundingMode.HALF_UP);
+                  System.debug('@@@@Total Net Interest : '+totalNetInterestRate);
+                  
+                  //Logic to calculate sumproduct for "total Fee %" column of Investor table
+                  System.debug('***Formula2 : '+totalFormula2);
+                  System.debug('****TotalNewMoney : '+totalNewMoney);
+                  totalInvCF = (totalFormula2 /totalNewMoney) * 100;
+                  System.debug('@@@@Total Inv CF : '+totalInvCF);
+                  totalInvCF = (totalInvCF).setScale(2, RoundingMode.HALF_UP);
+                  System.debug('%%%Total Inv CF : '+totalInvCF);
+                  
+                  //Logic to calculate sumproduct for "CSMC Fee %" column of Investor table
+                  commitmentfees = totalCSMCCF;
+                  totalCSMCCF = (totalCSMCCF /totalNewMoney).setScale(2, RoundingMode.HALF_UP);
+                  System.debug('@@@@Total CSMC CF : '+totalCSMCCF);
+                  
+                  // Logic to calculate sumproduct for "Investor Fee (Net)" column of Investor table
+                  totalFormula4 = (totalFormula4 /totalNewMoney).setScale(2, RoundingMode.HALF_UP);
+                  System.debug('@@@@Total Formula4 : '+totalFormula4);
+                  
+                  //******To Be Added Table Calculation******
+                  // Logic to calculate sumproduct for "Actual Servicing fee" column of To be Added table
+                  sumProductCSMCSF = (sumProductCSMCSF /totalNewMoney);
+                  System.debug('****sumProductCSMCSF CSMC SF without roundoff : '+sumProductCSMCSF);
+                  sumProductCSMCSF = sumProductCSMCSF;
+                  System.debug('****sumProductCSMCSF CSMC SF Percentage : '+sumProductCSMCSF);
+                  servicingfees = sumProductCSMCSF * 10000 / 100;
+                  
+                  // Logic to calculate sumproduct for "Actual Commitment fee" column of To be Added
+                  commitmentfees = (commitmentfees /totalNewMoney);
+                  System.debug('****commitmentfees CSMC CF without roundoff : '+commitmentfees);
+                  commitmentfees = commitmentfees * 10000 / 100;
+                  System.debug('****commitmentfees CSMC CF Percentage : '+commitmentfees);
+
+                  //Logic to calculate sumproduct for "Budget Servicing fee" column of To be Added
+                  // totalservicingfeeBudget = ((sumTypeA * 50) +(sumTypeB * 100))/totalNewMoney;
+                  // System.debug('@@@ totalservicingfeeBudget @@@ '+totalservicingfeeBudget);
+                  totalservicingfeeBudget = invServicingfeeBudget / totalNewMoney;
+                  System.debug('@@@ totalservicingfeeBudget @@@ '+totalservicingfeeBudget);
+
+                  totalservicingfeeBudget = totalservicingfeeBudget / 100;
+                  System.debug('totalservicingfeeBudget %% '+totalservicingfeeBudget);
+                  
+                  //Logic to calculate sumproduct for "Better/Worse Servicing fee" column of To be Added
+                  totalServicingbetter = servicingfees - totalservicingfeeBudget;
+                  System.debug('Total Servicing fee *** '+totalServicingbetter);
+                  
+                  // Format totalservicingfeeBudget ("Budget Servicing fee") to always have 2 decimal places
+                  totalservicingfeeBudget = totalservicingfeeBudget.setScale(2);
+                  System.debug('***totalservicingfeeBudget after formatting ****' + totalservicingfeeBudget);
+                  
+                  //Logic to calculate sumproduct for "Better/Worse Commitment fee" column of To be Added
+                  //Retrieve "Forecast_CSMC_Inv_CF_bps__c" formula field value for first Inestor using the property method getFirstInvestorForecastCommitmentFee.
+                  Decimal firstInvestorCommitmentFee = getFirstInvestorForecastCommitmentFee();
+                  
+                  if (firstInvestorCommitmentFee != null) {
+                      totalCommitmentbetter = commitmentfees - firstInvestorCommitmentFee;
+                      System.debug('Total Servicing fee *** '+totalCommitmentbetter);
+                  } else {
+                      totalCommitmentbetter = commitmentfees; // Handle case where there is no servicing fee for the first investor
+                  }
+
+              }
+              else{
+                  System.debug('Division by zero');
+              }
+          }
+          catch (Exception ex){
+              System.debug('Error occur: ' +ex.getMessage());
+          }
+          
+      }
+  }
+  
+  
+  @AuraEnabled
+  public static Id getOpportunityId(Id oppId){
+      try{
+          System.debug('Received Opp Id: ' + oppId);
+          return oppId; 
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }       
+  }
+  
+  //Method to get realted investors record
+  public List<Investor__c> getRelatedInvestors(Id opportunityId, String fetchfacilityNo, String fetchtierNo) {
+      
+      try {
+          System.debug('@@@ Facility No: ' + fetchfacilityNo );
+          System.debug('@@@ Tier: ' + fetchtierNo); 
+          List<Investor__c> getInvestors = new List<Investor__c>();
+          if(fetchtierNo == '1'){
+              getInvestors = [SELECT Id, Name, Inv_CF_CSMC__c, CSMC_Inv_SF__c, Facility_Loan_Number__c, Facility_No__c, Facility_Number__c, Formula1__c, Formula2__c, Formula3__c, Formula4__c, Formula5__c, Formula6__c, Formula7__c,
+                              Gross_Interest_Rate__c, Net_Interest_Rate__c, Lender__c, New_Money__c, Tier__c, Total_Inv_CF__c, Utilization_Inv__c ,Opportunity__c, Forecast_Commitment_Fee__c, Forecast_Servicing_Fee__c, Type__c, Forecast_CSMC_Inv_CF_bps__c, Loan_Amount__c
+                              FROM Investor__c 
+                              WHERE Opportunity__c = :opportunityId
+                              AND Facility_No__c = :fetchfacilityNo
+                              AND (Tier__c = :fetchtierNo OR Tier__c = null)];
+
+          }
+          else{
+              getInvestors = [SELECT Id, Name, Inv_CF_CSMC__c, CSMC_Inv_SF__c, Facility_Loan_Number__c, Facility_No__c, Facility_Number__c, Formula1__c, Formula2__c, Formula3__c, Formula4__c, Formula5__c, Formula6__c, Formula7__c,
+                              Gross_Interest_Rate__c, Net_Interest_Rate__c, Lender__c, New_Money__c, Tier__c, Total_Inv_CF__c, Utilization_Inv__c ,Opportunity__c, Forecast_Commitment_Fee__c, Forecast_Servicing_Fee__c, Type__c, Forecast_CSMC_Inv_CF_bps__c, Loan_Amount__c
+                              FROM Investor__c 
+                              WHERE Opportunity__c = :opportunityId
+                              AND Facility_No__c = :fetchfacilityNo
+                              AND Tier__c = :fetchtierNo];
+          }
+          System.debug('%%%% Investor List: '+getInvestors);
+          return getInvestors;
+
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return new List<Investor__c>();
+      }
+  }
+
+  //Method to send Facility and Tier of Investors to LWC
+  @AuraEnabled(cacheable=true)
+  public static List<Map<String, Object>> getFacilityAndTierData(Id opportunityId) {
+      List<AggregateResult> results = [
+          SELECT Facility_No__c, MIN(Tier__c) minTier, MAX(Tier__c) maxTier 
+          FROM Investor__c 
+          WHERE Opportunity__c = :opportunityId
+          GROUP BY Facility_No__c
+      ];
+      
+      List<Map<String, Object>> data = new List<Map<String, Object>>();
+      for (AggregateResult result : results) {
+          String minTierValue = (String)result.get('minTier');
+          Integer finalMinTier = (minTierValue == null || Integer.valueOf(minTierValue) >= 2) ? 1 : Integer.valueOf(minTierValue);
+          //Integer finalMinTier = (minTierValue == null) ? 1 : Integer.valueOf(minTierValue);
+          String maxTierValue = (String)result.get('maxTier');
+          Integer finalMaxTier = (maxTierValue == null) ? 1 : Integer.valueOf(maxTierValue);
+          
+          data.add(new Map<String, Object>{
+              'facilityNo' => result.get('Facility_No__c'),
+              'minTier' => finalMinTier,
+              'maxTier' => finalMaxTier
+          });
+      }
+      return data;
+  }
+  
+  // Property to get Forecast Commitment Fee of the first investor
+  public Decimal getFirstInvestorForecastCommitmentFee() {
+      try {
+          if (!investors.isEmpty()) {
+              return investors[0].investor.Forecast_CSMC_Inv_CF_bps__c;
+          }
+          return null;
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+  }
+
+  
+  // Helper method to round and remove percentage sign from text type field having percentage value
+  public String getRoundedValueWithoutPercentage(String value) {
+      try{
+          if (value != null && value.contains('%')) {
+              value = value.replace('%', '');
+          }
+          Decimal decimalValue;
+          if (value != null) {
+              decimalValue = Decimal.valueOf(value);
+              return String.valueOf(decimalValue.setScale(2, RoundingMode.HALF_UP));
+          }
+          return null;
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+      
+  }
+  
+  // Helper method to get numeric value from a text field
+  public Decimal getNumericValue(String value) {
+      try{
+          if (value != null && value.contains('%')) {
+              value = value.replace('%', '');
+          }
+          if (value != null) {
+              return Decimal.valueOf(value);
+          }
+          return null;
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+      
+  }
+  
+      // // Helper method to round and remove percentage sign from text type field having percentage value
+      // public String getRoundedValueWithoutPercentage(String value) {
+      //     try {
+      //         Decimal extractedValue = extractNumericValue(value);
+      //         if (extractedValue != null) {
+      //             return String.valueOf(extractedValue.setScale(2, RoundingMode.HALF_UP));
+      //         }
+      //         return null;
+      //     } catch (Exception ex) {
+      //         System.debug('Error in getRoundedValueWithoutPercentage: ' + ex.getMessage());
+      //         return null;
+      //     }
+      // }
+      
+      // // Helper method to get numeric value from a text field
+      // public Decimal getNumericValue(String value) {
+      //     try {
+      //         return extractNumericValue(value);
+      //     } catch (Exception ex) {
+      //         System.debug('Error in getNumericValue: ' + ex.getMessage());
+      //         return null;
+      //     }
+      // }
+      
+      // // Private helper method to extract numeric value from various formats
+      // private Decimal extractNumericValue(String value) {
+      //     if (String.isBlank(value)) return null;
+          
+      //     // Remove percentage sign if present
+      //     String cleanedValue = value.replace('%', '');
+          
+      //     // Check if the value contains a '+'
+      //     Integer plusIndex = cleanedValue.indexOf('+');
+      //     if (plusIndex != -1) {
+      //         // Extract the part after '+'
+      //         cleanedValue = cleanedValue.substring(plusIndex + 1).trim();
+      //     }
+          
+      //     // Extract numeric part (including decimal point)
+      //     String numericPart = '';
+      //     Boolean decimalPointFound = false;
+      //     for (Integer i = 0; i < cleanedValue.length(); i++) {
+      //         String char = cleanedValue.substring(i, i + 1);
+      //         if (char.isNumeric() || (char == '.' && !decimalPointFound)) {
+      //             numericPart += char;
+      //             if (char == '.') decimalPointFound = true;
+      //         } else if (!String.isBlank(numericPart)) {
+      //             // Stop if we've already found numeric part and encounter non-numeric
+      //             break;
+      //         }
+      //     }
+          
+      //     if (String.isBlank(numericPart)) return null;
+          
+      //     return Decimal.valueOf(numericPart);
+      // }
+
+
+
+
+  //Method to get Lenders record
+  public Map<Id, String> fetchLenderNames(List<Investor__c> investors) {
+      try{
+          Set<Id> lenderIds = new Set<Id>();
+          for (Investor__c inv : investors) {
+              lenderIds.add(inv.Lender__c);
+          }
+          
+          Map<Id, String> lenderNames = new Map<Id, String>();
+          for (Lender__c lender : [SELECT Id, Lender_Short_Name__c FROM Lender__c WHERE Id IN :lenderIds]) {
+              lenderNames.put(lender.Id, lender.Lender_Short_Name__c);
+          }
+          
+          return lenderNames;
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+  }
+  
+  //Method to get opportunity record
+  public Opportunity getOpportunity(Id opportunityId) {
+      try {
+          return [SELECT Id, Name, Deal_Number__c, Loan_Term_months__c, Owner.Name,Interest_Rate__c, Final_Signoff_of_Package_Ariel__c, Final_Signoff_of_Package_Curtis__c, Final_Signoff_of_Packae_Dan__c,
+                  Final_Signoff_of_Package_Nadeem__c, Final_Signoff_of_Package_Sheri__c,Final_Signoff_of_Package_Dan__c, Final_Signoff_of_Package_Dana__c, Final_Signoff_of_Package_Joe__c, Final_Signoff_of_Package_John__c,
+                   Final_Signoff_of_Package_Katie__c, Final_Signoff_of_Package_Tim__c,Loan_Term_Facility_1__c, Loan_Term_Facility_2__c, Loan_Term_Facility_3__c, Loan_Term_Facility_4__c, Loan_Term_Facility_5__c, Loan_Term_Facility_6__c, Number_of_Facilities__c FROM Opportunity WHERE Id = :opportunityId];
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+  }
+  
+  //Method to get User Name on basis of Final_Signoff_of_Package checkbox of Opportunity
+  public String getFinalSignoffUserName(Opportunity opp) {
+      
+      try{
+          String firstSignoffName = '';
+          Map<String, Boolean> signoffMap = new Map<String, Boolean>{
+              'Ariel' => opp.Final_Signoff_of_Package_Ariel__c,
+                  'Curtis' => opp.Final_Signoff_of_Package_Curtis__c,
+                  'Dan' => opp.Final_Signoff_of_Packae_Dan__c || opp.Final_Signoff_of_Package_Dan__c,
+                  'Dana' => opp.Final_Signoff_of_Package_Dana__c,
+                  'Joe' => opp.Final_Signoff_of_Package_Joe__c,
+                  'John' => opp.Final_Signoff_of_Package_John__c,
+                  'Katherine' => opp.Final_Signoff_of_Package_Katie__c,
+                  'Tim' => opp.Final_Signoff_of_Package_Tim__c,
+                  'Nadeem' => opp.Final_Signoff_of_Package_Nadeem__c,
+                  'Sheri' => opp.Final_Signoff_of_Package_Sheri__c
+                  };
+                      
+                      for (String name : signoffMap.keySet()) {
+                          if (signoffMap.get(name)) {
+                              System.debug('First Signoff: ' + name);
+                              
+                              List<User> users = [SELECT Id, Name FROM User WHERE FirstName = :name LIMIT 1];
+                              System.debug('User: ' + users);
+                              
+                              if (!users.isEmpty()) {
+                                  
+                                  return users[0].Name;
+                              }
+                              
+                              // If we found a true checkbox but no matching user, we still return to avoid checking other checkboxes
+                              return '';
+                          }
+                      }
+          
+          return '';
+      } catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+  }
+  
+  
+  @AuraEnabled
+  public static Map<String, Object> validateOpportunityAndInvestors(Id opportunityId) {
+      try{
+
+          Map<String, Object> result = new Map<String, Object>();
+          List<String> errors = new List<String>();
+          
+          // Validate Opportunity fields
+          Opportunity opp = [SELECT Id, Name, Deal_Number__c, Loan_Term_months__c, Owner.Name,Interest_Rate__c, Final_Signoff_of_Package_Ariel__c, Final_Signoff_of_Package_Curtis__c, Final_Signoff_of_Packae_Dan__c,
+                             Final_Signoff_of_Package_Nadeem__c, Final_Signoff_of_Package_Sheri__c,
+                             Final_Signoff_of_Package_Dan__c, Final_Signoff_of_Package_Dana__c, Final_Signoff_of_Package_Joe__c, Final_Signoff_of_Package_John__c, Final_Signoff_of_Package_Katie__c, Final_Signoff_of_Package_Tim__c,
+                             Loan_Term_Facility_1__c, Loan_Term_Facility_2__c, Loan_Term_Facility_3__c, Loan_Term_Facility_4__c, Loan_Term_Facility_5__c, Loan_Term_Facility_6__c, Number_of_Facilities__c 
+                             FROM Opportunity 
+                             WHERE Id = :opportunityId];
+
+      
+          // Fetching Facility numbers from related Investors
+          List<AggregateResult> facilityResults = [
+              SELECT Facility_No__c 
+              FROM Investor__c 
+              WHERE Opportunity__c = :opportunityId
+              GROUP BY Facility_No__c
+          ];
+
+          Integer facilityCount = facilityResults.size();                  
+          
+          if (opp.Name == null) {
+              errors.add('Name required for Deal: ' + opp.Name );
+          }
+          if (opp.Deal_Number__c == null) {
+              errors.add('Deal Number required for Deal: ' + opp.Name );
+          }
+          if (opp.Number_of_Facilities__c == null) {
+              errors.add('Number of Facilities required for Deal: ' + opp.Name );
+          }
+          if (opp.OwnerId == null) {
+              errors.add('Sales required for Deal: ' + opp.Name );
+          }
+          if (opp.Interest_Rate__c == null) {
+              errors.add('Interest Rate required for Deal: ' + opp.Name );
+          }
+          // Validate Loan Term fields based on facility count
+          if (facilityCount >= 1 && opp.Loan_Term_Facility_1__c == null) {
+              errors.add('Loan Term (Facility 1) required for Deal: ' + opp.Name);
+          }
+          if (facilityCount >= 2 && opp.Loan_Term_Facility_2__c == null) {
+              errors.add('Loan Term (Facility 2) required for Deal: ' + opp.Name);
+          }
+          if (facilityCount >= 3 && opp.Loan_Term_Facility_3__c == null) {
+              errors.add('Loan Term (Facility 3) required for Deal: ' + opp.Name);
+          }
+          if (facilityCount >= 4 && opp.Loan_Term_Facility_4__c == null) {
+              errors.add('Loan Term (Facility 4) required for Deal: ' + opp.Name);
+          }
+          if (facilityCount >= 5 && opp.Loan_Term_Facility_5__c == null) {
+              errors.add('Loan Term (Facility 5) required for Deal: ' + opp.Name);
+          }
+          if (facilityCount >= 6 && opp.Loan_Term_Facility_6__c == null) {
+              errors.add('Loan Term (Facility 6) required for Deal: ' + opp.Name);
+          }
+
+          if (opp.Final_Signoff_of_Package_Ariel__c ==false && opp.Final_Signoff_of_Package_Curtis__c ==false && opp.Final_Signoff_of_Packae_Dan__c ==false
+              && opp.Final_Signoff_of_Package_Nadeem__c ==false && opp.Final_Signoff_of_Package_Sheri__c ==false && opp.Final_Signoff_of_Package_Joe__c ==false
+              && opp.Final_Signoff_of_Package_John__c ==false && opp.Final_Signoff_of_Package_Dan__c ==false && opp.Final_Signoff_of_Package_Dana__c ==false
+              && opp.Final_Signoff_of_Package_Tim__c ==false && opp.Final_Signoff_of_Package_Katie__c ==false) {
+                  errors.add('Final_Signoff_of_Package required for Deal: ' +opp.Name);
+              }
+          // Add more Opportunity field validations as needed
+          
+          // Validate related Investors
+
+          List<Investor__c> investors = new List<Investor__c>();
+          investors = [SELECT Id, Name, Inv_CF_CSMC__c, CSMC_Inv_SF__c, Facility_Loan_Number__c, Facility_No__c, Facility_Number__c, Formula1__c, Formula2__c, Formula3__c, Formula4__c, Formula5__c, Formula6__c, Formula7__c,
+                              Gross_Interest_Rate__c, Net_Interest_Rate__c, Lender__c, New_Money__c, Tier__c, Total_Inv_CF__c, Utilization_Inv__c ,Opportunity__c, Forecast_Commitment_Fee__c, Forecast_Servicing_Fee__c, Type__c,
+                              Lender__r.Lender_Short_Name__c, Lender__r.Name, Forecast_CSMC_Inv_CF_bps__c, Loan_Term_Facility__c, Loan_Amount__c
+                              FROM Investor__c 
+                              WHERE Opportunity__c = :opportunityId];
+          System.debug('Validate Investor List: '+investors);
+          
+          if (investors.isEmpty()) {
+              errors.add('At least one Investor is required');
+          } 
+          else {
+              for (Investor__c inv : investors) {
+                  if (inv.Inv_CF_CSMC__c == null) {
+                      errors.add('CSMC Inv CF % required for Investor: ' + inv.Name );
+                  }
+                  if (inv.CSMC_Inv_SF__c == null) {
+                      errors.add('CSMC Inv SF % required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Facility_No__c == null) {
+                      errors.add('Facility No. required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Facility_Loan_Number__c == null) {
+                      errors.add('Facility Loan Number required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Gross_Interest_Rate__c == null) {
+                      errors.add('Gross Interest Rate required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Lender__c == null) {
+                      errors.add('Lender required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Loan_Amount__c == null) {
+                      errors.add('Loan Amount required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Forecast_Servicing_Fee__c == null) {
+                      errors.add('Forecast CSMC Inv SF% required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Net_Interest_Rate__c == null) {
+                      errors.add('Net Interest Rate required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Total_Inv_CF__c == null) {
+                      errors.add('Total Inv CF% required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Utilization_Inv__c == null) {
+                      errors.add('Utilization Inv % required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Forecast_Commitment_Fee__c == null) {
+                      errors.add('Forecast CSMC INV CF % required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Opportunity__c == null) {
+                      errors.add('Project required for Investor: ' + inv.Name);
+                  }
+                  if (inv.Lender__r.Lender_Short_Name__c == null) {
+                      errors.add('Lender Short Name required for Lender: ' + inv.Lender__r.Name );
+                  }
+                  if (inv.Type__c == null) {
+                      errors.add('Type required for Lender: ' + inv.Name );
+                  }
+                  if(inv.Forecast_CSMC_Inv_CF_bps__c == null){
+                      errors.add('Forecast CSMC Inv CF (bps) required for Investor: ' +inv.Name);
+                  }
+                  if(inv.Loan_Term_Facility__c == null){
+                      errors.add('Loan Term (Facility) required for Investor: ' +inv.Name);
+                  }
+                  // Add more Investor field validations as needed
+              }
+          }
+
+          
+          result.put('isValid', errors.isEmpty());
+          result.put('errors', errors);
+          
+          return result;
+      }
+      catch (Exception ex) {
+          System.debug(ex.getMessage());
+          return null;
+      }
+  }
+  
+  
+  // Method to generate PDF and attach it to the Opportunity record
+  
+   @AuraEnabled
+  public static Map<String, String> generateAndAttachPDF(Id opportunityId, String note, String facilityNo, String tier, String maxTier, String maxFacility) {
+          //Store the facilityNo and tier in the static properties
+          OpportunityInvestorController.facilityNo = facilityNo;
+          OpportunityInvestorController.tier = tier;
+          selectedfacilityNo = facilityNo;
+          selectedtier = tier;
+
+          System.debug('*** Facility No: '+facilityNo);
+          System.debug('*** Tier No: '+tier);
+          System.debug('*** Tier Max: '+maxTier);
+          System.debug('*** Facility Max: '+maxFacility);
+
+      Map<String, String> resultMap = new Map<String, String>();
+      try {
+          // Fetch the Opportunity record
+          Opportunity opp = [SELECT Id, Name, Deal_Number__c FROM Opportunity WHERE Id = :opportunityId];
+          
+          // Fetch the Investor record
+          Investor__c inv = [SELECT Id, Name, Facility_No__c, Facility_Number__c, Tier__c FROM Investor__c WHERE Opportunity__c = :opportunityId LIMIT 1];
+          
+          // Determine parts of the file name
+          String dealNumber = (opp.Deal_Number__c != null) ? String.valueOf(opp.Deal_Number__c) : 'null';
+          String projectName = (opp.Name != null) ? opp.Name : 'null';
+          String fileName = dealNumber + '_' + projectName + '_' + facilityNo + '_' + tier;
+          
+          // For test Class isRunning
+          Blob pdfBlob;
+          if (Test.isRunningTest()) {
+              // In test context, we create a dummy Blob
+              pdfBlob= Blob.valueOf('Test PDF Content');
+          } else {
+              // Generate the actual PDF
+              PageReference pdfPage = Page.FeeSchedulePdf;
+              pdfPage.getParameters().put('id', opportunityId);
+              pdfPage.getParameters().put('note', note);
+              pdfPage.getParameters().put('selectedfacilityNo', facilityNo);
+              pdfPage.getParameters().put('selectedtier', tier);
+              pdfPage.getParameters().put('maxtierNo', maxTier);
+              pdfPage.getParameters().put('maxfacilityNo', maxFacility);
+              pdfBlob = pdfPage.getContentAsPDF();
+          }
+          
+          // Create ContentVersion and ContentDocumentLink
+          ContentVersion contentVersion = new ContentVersion();
+          contentVersion.Title = fileName + '_FeeSchedule.pdf';
+          contentVersion.PathOnClient = fileName + '_FeeSchedule.pdf';
+          contentVersion.VersionData = pdfBlob;
+          contentVersion.IsMajorVersion = true;
+          database.insert(contentVersion, false);
+          
+          // Get contentDocumentLink
+          ContentDocumentLink contentDocumentLink = new ContentDocumentLink();
+          contentDocumentLink.ContentDocumentId = [SELECT ContentDocumentId FROM ContentVersion WHERE Id = :contentVersion.Id].ContentDocumentId;
+          contentDocumentLink.LinkedEntityId = opportunityId;
+          contentDocumentLink.ShareType = 'V'; // Viewer access
+          database.insert(contentDocumentLink, false);
+          
+          resultMap.put('pdfContent', EncodingUtil.base64Encode(pdfBlob));
+          resultMap.put('oppName', opp.Name);
+          resultMap.put('dealNumber', opp.Deal_Number__c);
+          resultMap.put('facilityNo', facilityNo);
+          resultMap.put('tier', tier);
+         resultMap.put('contentDocumentId', contentDocumentLink.ContentDocumentId); // Add ContentDocumentId for preview
+         resultMap.put('fileName', fileName + '_FeeSchedule.pdf'); // Add the file name to resultMap
+
+      } catch (Exception ex) {
+          System.debug('Error generating and attaching PDF: ' + ex.getMessage());
+      }
+      return resultMap;
+  }
+
+}
+
+
+VF Page:
+<apex:page controller="OpportunityInvestorController" renderAs="pdf" applyBodyTag="false" contentType="application/pdf" id="pdfPage">
+  <head>
+      
+      <style type="text/css" media="print">
+          @page { 
+          margin: 0.25in;
+         /* size:10in 15in; */ 
+          size: landscape; 
+          }
+          
+          .source-table{
+          margin: auto;
+          }
+          .excel-container {
+          font-family: Arial;
+          font-size:10px;
+          padding: 10px;
+          margin-bottom: 11px;
+          }
+          
+          .container {
+          width: 100%;
+          text-align: center;
+          margin-top: 2px; /* Adjust as needed for vertical centering */
+          }
+          
+          .main-table {
+          border-collapse: collapse;
+          width: auto;
+          }
+          .main-table th, .main-table td {
+          border: 1px solid black;
+          padding: 2px;
+          text-align: left;
+          font-size: 10px; /* Reduced font size */
+          }
+          
+          table {
+          border-collapse: collapse;
+          width: auto;
+          margin-bottom: 10px;
+          border=".5";
+          margin-align="right"
+          }
+          
+          th, td {
+          border: 1px solid black;
+          padding: 3px;
+          text-align: left;
+          }
+          
+          /* Updated styles for the header */
+          .main-table thead tr:first-child th {
+          text-align: center;
+          background-color: #e4e2e2; /* Light gray background for both sections */
+          font-weight: bold;
+          }
+          
+          .main-table thead tr:first-child th:empty {
+          background-color: #ffffff;
+          border: none;
+          }
+          
+          .annual-interest {
+              white-space: nowrap;
+          }
+          .formula-column {
+              width: 100px;
+          }
+          
+      </style>
+
+  </head>
+  <apex:form id="form" style="font-size: 15px">
+      <!-- Service Fee and Origination Fees Table -->
+      <div class="excel-container">
+          
+          <div class="container">
+              
+              <apex:pageBlock >
+                 <p style="float:right; font-size:10px; white-space: nowrap; overflow: visible; width: auto; margin-right: 14px;"> Date:&nbsp;
+                          <apex:outputText value="{0,date,MMMM dd, yyyy}">
+                            <apex:param value="{!TODAY()}" />
+                        </apex:outputText>
+                  </p>
+                  <table style="margin-left: 370px; border: none;line-height: 1; font-size: 14px;">
+                      <tbody>
+                          <tr>
+                              <th style="border: none;">Project Name</th>
+                              <td style="border: none; font-weight: bold; padding-left: 10px;">{!Opportunity.Name}</td>
+                          </tr>
+                          <tr style="line-height: 1;">
+                              <th style=" border: none; padding-top: 2px; padding-bottom: 2px;">Deal #</th>
+                              <td style=" border: none; font-weight: bold; padding-left: 10px;">{!Opportunity.Deal_Number__c}</td>
+                          </tr>
+                          <tr style="line-height: 1;">
+                              <th style="white-space: nowrap; border: none; margin: 0px; padding-top: 2px; padding-bottom: 2px;">Loan Facility #</th>
+                              <td style="border: none; font-weight: bold; padding-left: 10px;">{!investors[0].investor.Facility_Loan_Number__c}</td>
+                          </tr>
+                          <tr style="line-height: 1;">
+                              <th style="border: none; padding-top: 0px; padding-bottom: 2px;">Facility</th>
+                              <td style="border: none; font-weight: bold; padding-left: 10px;">{!investors[0].investor.Facility_No__c} of {!maxFacilityNumber}</td>
+                          </tr>
+                          
+                          <tr style="line-height: 1;">
+                              <th style=" border: none;  padding-top: 0px; padding-bottom: 3px;">Tier</th>
+                              <td style="border: none; font-weight: bold; padding-left: 10px;">
+                                  {!IF(ISBLANK(investors[0].investor.Tier__c), '1', investors[0].investor.Tier__c)} of {!IF(ISBLANK(maxTierNumber), '1', maxTierNumber)}
+                              </td>
+                          </tr>
+                      </tbody>
+                  </table>
+                  
+              </apex:pageBlock>
+              
+          </div>
+          
+          <apex:pageBlock >
+              
+              <table class="main-table">
+                  <thead>
+                      <tr>
+                          <th colspan="3" style="border: none; background-color: white;"></th>
+                          <th colspan="4" style="background-color: #e4e2e2;" class="service-fee-header">Service Fee</th>
+                          <th colspan="6" style="background-color: #e4e2e2;" class="origination-fees-header">Origination Fees</th>
+                      </tr>
+                      <tr>
+                          <th style="background-color: #e4e2e2;">Investor</th>
+                          <th style="text-align: center; background-color: #e4e2e2;">Loan Amount</th>
+                          <th style="text-align: center; background-color: #e4e2e2;">Utilization</th>
+                          <th style="border-right-style:none; text-align: center; background-color: #e4e2e2;">Interest</th>
+                          <th style="border-left-style: none; text-align: center; background-color: #e4e2e2;">Annualized Interest Rate (Gross)</th>
+                          <th style="border-right-style:none; text-align: center; background-color: #e4e2e2;">CSMC SF%</th>
+                          <th style="border-left-style: none; text-align: center; background-color: #e4e2e2;">Investor Rate (Net)</th>
+                          <th style="border-right-style: none; text-align: center; background-color: #e4e2e2;">Total Fee $</th>
+                          <th style="border-left-style:none; text-align: center; background-color: #e4e2e2;">Total Fee %</th>
+                          <th style="text-align: center; background-color: #e4e2e2;">CSMC Fee %</th>
+                          <th style="text-align: center; background-color: #e4e2e2;">Net Fee to Investor</th>
+                          <th style="text-align: center; background-color: #e4e2e2;">Investor Fee (Net)</th>
+                      </tr>
+
+                  </thead>
+                  <tbody>
+                      <apex:repeat value="{!investors}" var="inv">
+                          <tr>
+                              <td style="text-align: left; width: 75px;">{!inv.lenderShortName}</td>
+                           <td style="text-align: center;">
+                                <apex:outputText value="${0, number, ##,##,##,##0}">
+                                  <apex:param value="{!ROUND(inv.investor.Loan_Amount__c, 0)}" />
+                              </apex:outputText>
+                          </td>
+              
+                              
+                              <td style="text-align: center;">{!ROUND(inv.investor.Utilization_Inv__c, 2)}%</td>
+                              <td style="text-align: center;width: 100px;">
+                                  <apex:outputText value="${0, number, ##,##,##,##0}">
+                                  <apex:param value="{!ROUND(inv.investor.Formula1__c, 0)}" />
+                              </apex:outputText></td>
+                              <td style="text-align: center;width: 70px;">{!inv.roundedGrossInterestRate}%</td>
+                              <td style="text-align: center;">{!ROUND(inv.investor.CSMC_Inv_SF__c,2)}%</td>
+                              <td style="text-align: center;">{!inv.roundedNetInterestRate}%</td>
+                              <td style="text-align: center; width: 75px;">
+                                  <apex:outputText value="${0, number, ##,##,##,##0}">
+                                  <apex:param value="{!ROUND(inv.investor.Formula2__c, 0)}" />
+                              </apex:outputText></td>
+                              <td style="text-align: center;">{!ROUND(inv.investor.Total_Inv_CF__c,2)}%</td>
+                              <td style="text-align: center;">{!ROUND(inv.investor.Inv_CF_CSMC__c,2)}%</td>
+                              <td style="text-align: center; width: 75px;">
+                                  <apex:outputText value="${0, number, ##,##,##,##0}">
+                                  <apex:param value="{!ROUND(inv.investor.Formula3__c, 0)}" />
+                              </apex:outputText></td>
+                              <td style="text-align: center; width: 75px;">{!inv.investor.Formula4__c}%</td>
+                              
+                          </tr>
+                      </apex:repeat>
+                      
+                      <tr style="font-weight: bold;">
+                          <td style="text-align: left;">Total Loan</td>
+                          <td style="text-align: center;">
+                              <apex:outputText value="${0, number, ##,##,##,##0}">
+                              <apex:param value="{!ROUND(totalNewMoney, 0)}" />
+                          </apex:outputText></td>
+                          <td style="text-align: center;">{!totalUtilization}%</td>
+                          <td style="text-align: center;">
+                              <apex:outputText value="${0, number, ##,##,##,##0}">
+                              <apex:param value="{!ROUND(totalFormula1, 0)}" />
+                          </apex:outputText></td>
+                          <td style="text-align: center;">{!Opportunity.Interest_Rate__c}%</td>
+                          <td style="text-align: center;">{!totalCSMCSF}%</td>
+                          <td style="text-align: center;">{!totalNetInterestRate}%</td>
+                          <td style="text-align: center;">
+                              <apex:outputText value="${0, number, ##,##,##,##0}">
+                              <apex:param value="{!ROUND(totalFormula2, 0)}" />
+                          </apex:outputText></td>
+                          <td style="text-align: center;">{!totalInvCF}%</td>
+                          <td style="text-align: center;">{!totalCSMCCF}%</td>
+                          <td style="text-align: center;">
+                              <apex:outputText value="${0, number, ##,##,##,##0}">
+                              <apex:param value="{!ROUND(totalFormula3, 0)}" />
+                          </apex:outputText></td>
+                          <td style=" text-align: center;">{!totalFormula4}%</td>
+                      </tr>
+
+                  </tbody>
+                  
+              </table>
+              
+          </apex:pageBlock>
+          
+          <apex:pageBlock >
+    <div  style="margin-top: 10px;">
+              <table style="width: 100%;">
+                  <tbody>
+                    <tr> 
+                          <td style="border:none; width: 50%; padding-right: 20px;">
+                          <div>
+                                  <table>
+                                      <thead>
+                                          <tr>
+                                              <td style="width: 70px; background-color: #e4e2e2;">Term</td>
+                                              <td style="width: 70px; text-align: center;">
+                                                  <apex:outputText rendered="{!facilityNumber = '1'}">{!Opportunity.Loan_Term_Facility_1__c}</apex:outputText>
+                                                  <apex:outputText rendered="{!facilityNumber = '2'}">{!Opportunity.Loan_Term_Facility_2__c}</apex:outputText>
+                                                  <!-- <apex:outputText rendered="{!OR(facilityNumber = '3', facilityNumber = '4', facilityNumber = '5')}">
+                                                      {!Opportunity.Loan_Term_Facility_3__c}
+                                                  </apex:outputText> -->
+                                                  <apex:outputText rendered="{!facilityNumber = '3'}">{!Opportunity.Loan_Term_Facility_3__c}</apex:outputText>
+                                                  <apex:outputText rendered="{!facilityNumber = '4'}">{!Opportunity.Loan_Term_Facility_4__c}</apex:outputText>
+                                                  <apex:outputText rendered="{!facilityNumber = '5'}">{!Opportunity.Loan_Term_Facility_5__c}</apex:outputText>
+                                                  <apex:outputText rendered="{!facilityNumber = '6'}">{!Opportunity.Loan_Term_Facility_6__c}</apex:outputText>
+                                              </td>
+                                          </tr>
+                                      </thead>
+                                  </table>
+                           </div>
+                           <div>
+                               <table style="border: 1px solid black; border-collapse: collapse; display: inline-block;">
+
+                                  <tr>
+                                      <td style="border: 1px black; font-size: 10px; padding: 4px; white-space: nowrap; vertical-align: top; width: 6%;">
+                                          <strong>Notes:</strong>
+                                      </td>
+                                     <td style="border: 1px black; font-size: 10px; padding: 4px; vertical-align: top; width: 69%;">
+                                          <div style="white-space: pre-wrap;">
+                                              <apex:outputText value="{!note}" escape="false"/>
+                                          </div>
+                                      </td>
+                                  </tr>
+                              </table>
+                            </div>
+                <br/> <br/>
+
+                                  <div style="display: inline-block; width: auto; margin-top: 30px;">
+                                      <div style="border-top: 1px solid black; width: 160px; margin: 0 auto;"></div>
+                                      <span style="display: inline-block; padding: 0 2px; margin-top: 2px;">{!Opportunity.Owner.Name}</span>
+                                  </div>
+                <br/><br/><br/>
+
+                                  <div style="display: inline-block; width: auto; margin-top: 30px;">
+                                      <div style="border-top: 1px solid black; width: 160px; margin: 0 auto;"></div>
+                                      <span style="display: inline-block; padding: 0 2px; margin-top: 2px;">{!finalSignoffUserName}</span>
+                                  </div>
+                              <br/><br/><br/>
+
+                                  <div style="display: inline-block; width: auto; margin-top: 30px;">
+                                      <div style="border-top: 1px solid black; width: 160px; margin: 0 auto;"></div>
+                                      <span style="display: inline-block; padding: 0 2px; margin-top: 2px;">Management</span>
+                                  </div>
+
+                          </td>
+                          
+                          <td style="border:none; width: 40%;">
+                              <div>
+                                  <table style="width: 100%; font-family: Arial; font-size: 10px;">
+                                      <caption><strong>Cameron Stephens Compensation</strong></caption>
+                                      <thead>
+                                          <tr>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Investor</th>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Servicing</th>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Origination</th>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Totals</th>
+                                          </tr>
+                                      </thead>
+                                      <tbody>
+                                          <apex:repeat value="{!investors}" var="inv">
+                                              <tr>
+                                                  <td style="text-align: left;">{!inv.lenderShortName}</td>
+
+                                                  <td style="text-align: center;">
+                                                      <apex:outputText value="${0, number, ##,##,##,##0}">
+                                                      <apex:param value="{!ROUND(inv.investor.Formula5__c, 0)}" />
+                                                  </apex:outputText></td>
+                                                  <td style="text-align: center;">
+                                                      <apex:outputText value="${0, number, ##,##,##,##0}">
+                                                      <apex:param value="{!ROUND(inv.investor.Formula6__c, 0)}" />
+                                                  </apex:outputText></td>
+                                                  <td style="text-align: center;">
+                                                      <apex:outputText value="${0, number, ##,##,##,##0}">
+                                                      <apex:param value="{!ROUND(inv.investor.Formula7__c, 0)}" />
+                                                  </apex:outputText></td>
+                                              </tr>
+                                          </apex:repeat>
+                                          <tr style="font-weight: bold;">
+                                              <td style="text-align: left; font-weight: bold;">Totals</td>
+
+                                              <td style="text-align: center;">
+                                                  <apex:outputText value="${0, number, ##,##,##,##0}">
+                                                  <apex:param value="{!ROUND(totalServicing, 0)}" />
+                                              </apex:outputText></td>
+                                              <td style="text-align: center;">
+                                                  <apex:outputText value="${0, number, ##,##,##,##0}">
+                                                  <apex:param value="{!ROUND(totalOrignation, 0)}" />
+                                              </apex:outputText></td>
+                                              <td style="text-align: center;">
+                                                  <apex:outputText value="${0, number, ##,##,##,##0}">
+                                                  <apex:param value="{!ROUND(totalCompentation, 0)}" />
+                                              </apex:outputText></td>
+                                          </tr>
+                                      </tbody>
+                                  </table>
+                              </div>
+                              
+                              <!-- To Be Added Section -->
+                              <div>
+
+                                  <table style="width: 100%; font-family: Arial; font-size: 10px;">
+                                      <thead>
+                                          <tr>
+                                              <th style="background-color: #e4e2e2;">CSMC</th>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Actual</th>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Budget</th>
+                                              <th style="text-align: center; background-color: #e4e2e2;">Better/<span>(Worse)</span></th>
+                                          </tr>
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td>Servicing Fees (bps)</td>
+                                              <td style="text-align: center;">{!ROUND(servicingfees, 2)}</td>
+                                              <td style="text-align: center;">{!totalservicingfeeBudget}</td>
+                                              
+                                              <td style="text-align: center; color: {!IF(totalServicingbetter < 0, 'red', 'black')}">
+                                                  {!IF(totalServicingbetter < 0, 
+                                                      "(-" + IF(CONTAINS(TEXT(ROUND(totalServicingbetter, 2)), "."), 
+                                                                 TEXT(ROUND(-totalServicingbetter, 2)) + 
+                                                                 IF(LEN(RIGHT(TEXT(ROUND(totalServicingbetter, 2)), 2)) = 1, "0", ""), 
+                                                                 TEXT(ROUND(-totalServicingbetter, 2)) + ".00") + ")", 
+                                                      IF(CONTAINS(TEXT(ROUND(totalServicingbetter, 2)), "."), 
+                                                         TEXT(ROUND(totalServicingbetter, 2)) + 
+                                                         IF(LEN(RIGHT(TEXT(ROUND(totalServicingbetter, 2)), 2)) = 1, "0", ""), 
+                                                         TEXT(ROUND(totalServicingbetter, 2)) + ".00")
+                                                  )}
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>Commitment Fees (bps)</td>
+                                              <td style="text-align: center;">{!ROUND(commitmentfees,2)}</td>
+                                              <td style="text-align: center;">{!ROUND(investors[0].investor.Forecast_CSMC_Inv_CF_bps__c,2)}</td>
+                                           
+                                              <td style="text-align: center; color: {!IF(totalCommitmentbetter < 0, 'red', 'black')}">
+                                                  {!IF(totalCommitmentbetter < 0, 
+                                                      "(-" + IF(CONTAINS(TEXT(ROUND(totalCommitmentbetter, 2)), "."), 
+                                                                 TEXT(ROUND(-totalCommitmentbetter, 2)) + 
+                                                                 IF(LEN(RIGHT(TEXT(ROUND(totalCommitmentbetter, 2)), 2)) = 1, "0", ""), 
+                                                                 TEXT(ROUND(-totalCommitmentbetter, 2)) + ".00") + ")", 
+                                                      IF(CONTAINS(TEXT(ROUND(totalCommitmentbetter, 2)), "."), 
+                                                         TEXT(ROUND(totalCommitmentbetter, 2)) + 
+                                                         IF(LEN(RIGHT(TEXT(ROUND(totalCommitmentbetter, 2)), 2)) = 1, "0", ""), 
+                                                         TEXT(ROUND(totalCommitmentbetter, 2)) + ".00")
+                                                  )}
+                                              </td>
+                                              
+                                              
+                                              <!-- If Not want to rounded value -->
+                                              <!-- <td style="text-align: center; color: {!IF(totalCommitmentbetter < 0, 'red', 'black')}">
+                                                  {!IF(totalCommitmentbetter < 0, 
+                                                       "(-" + LEFT(TEXT(ROUND(totalCommitmentbetter, 2) + 0.001), FIND('.', TEXT(ROUND(totalCommitmentbetter, 2) + 0.001)) + 2) + ")", 
+                                                       LEFT(TEXT(ROUND(totalCommitmentbetter, 2) + 0.001), FIND('.', TEXT(ROUND(totalCommitmentbetter, 2) + 0.001)) + 2)
+                                                  )}
+                                              </td> -->
+                                              
+                                                      
+                                          </tr>
+                                      </tbody>
+                                  </table>
+                              </div>
+                          </td>
+                     </tr>
+                  </tbody>
+              </table>
+          </div>
+  </apex:pageBlock>
+          
+      </div>
+  </apex:form>
+  <apex:includeLightning />
+  <div id="LightningComponentid" /> // Call LWC in vf page using Aura Component.
+  <script>
+  
+  $Lightning.use("c:CallLwcComponent", function() {
+      $Lightning.createComponent("c:generateReportPdf",
+                                 {
+                                 },
+                                 "LightningComponentid",
+                                 function(cmp) {
+                                     console.log('LWC Component added in VF page');
+                                 });
+  });
+  </script>
+</apex:page>
+
+
+
+Aura Component(CallLwcComponent):
+
+<aura:application  extends="ltng:outApp" access="GLOBAL">
+<aura:dependency resource="generateFeeSchedulePdf" />	
+</aura:application>
+
+
+LWC Component:
+
+HTML File:
+<template>
+  <div class="slds-card_custom">
+      <div class="slds-card__header slds-p-around_medium slds-theme_shade custom-header">
+          <div class="slds-media slds-media_center">
+              <div class="slds-media__figure slds-var-m-left_medium slds-var-m-top_medium">
+                  <lightning-icon icon-name="standard:document" alternative-text="Document Icon" size="small"></lightning-icon>
+              </div>
+              <div class="slds-media__body slds-var-m-top_medium">
+                  <h2 class="slds-text-heading_medium slds-text-color_default slds-text-font-bold">Fee Schedule</h2>
+              </div>
+          </div>
+      </div>
+  
+      <lightning-card>
+          <div class="custom-body slds-p-around_medium" style="display: flex; justify-content: left; flex-wrap: nowrap; min-width: 240px;">
+              <lightning-button class="slds-var-m-right_small" label="Notes"
+                  variant="brand" onclick={handleNoteButtonClick}></lightning-button>
+              <lightning-button label="Generate All Fee Schedules"
+                  variant="brand" onclick={handleGeneratePDF}></lightning-button>
+          </div>
+      </lightning-card>
+  </div>
+  
+
+
+  <!-- if showModal is true -->
+  <template if:true={showModal}>
+      <section role="dialog" tabindex="-1" aria-labelledby="modal-heading-01" aria-modal="true" aria-describedby="modal-content-id-1" class="slds-modal slds-fade-in-open">
+          <div class="slds-modal__container">
+              <header class="slds-modal__header">
+                  <h2 id="modal-heading-01" class="slds-modal__title slds-hyphenate">Edit Note Section</h2>
+              </header>
+              <div class="slds-modal__content slds-p-around_medium" id="modal-content-id-1">
+                  <lightning-textarea 
+                      label="Note" 
+                      value={note} 
+                      onchange={handleNoteChange}
+                      placeholder="Enter your note here"
+                      class="slds-m-top_small">
+                  </lightning-textarea>
+              </div>
+              <footer class="slds-modal__footer slds-text-align_left">
+                  <div class="slds-m-right_small">
+                      <lightning-button label="Cancel" onclick={handleModalClose} class="slds-m-right_medium"></lightning-button>
+                      <lightning-button label="Done" variant="brand" onclick={handleDone}></lightning-button>
+                  </div>
+              </footer>
+          </div>
+      </section>
+      <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+</template>
+
+
+JS File:
+import { LightningElement, api, track, wire } from 'lwc';
+import { NavigationMixin } from 'lightning/navigation';
+import getOpportunityId from '@salesforce/apex/OpportunityInvestorController.getOpportunityId';
+import generateAndAttachPDF from '@salesforce/apex/OpportunityInvestorController.generateAndAttachPDF';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import validateOpportunityAndInvestors from '@salesforce/apex/OpportunityInvestorController.validateOpportunityAndInvestors';
+import getFacilityAndTierData from '@salesforce/apex/OpportunityInvestorController.getFacilityAndTierData';
+
+export default class GenerateReportPdf extends NavigationMixin(LightningElement) {
+  @api recordId;
+
+  showModal = false;
+  @track note = '';
+  editNote = false;
+  oppName = '';
+  dealNumber ='';
+  facilityNo = '';
+  tier = '';
+  fileName = '';
+
+ 
+  @track contentDocumentId;
+  @track facilities = [];
+  selectedFacility;
+  selectedTier;
+  tiers = [];
+  @track isTierSelected = false;
+
+
+  defaultNote = 'Borrower\'s Rate is 10.20% / Prime + 3.00% per annum (greater of) $2,000,000 Cash to be deposited and held in CSMC\'s Trust for any cost overruns. The Advance is to be on a pro-rata basis';
+  note = this.defaultNote;
+
+  // Handle opening the modal
+  handleNoteButtonClick() {
+          this.showModal = true;
+          this.note = this.defaultNote;
+          console.log('note@@@',this.defaultNote);
+  }
+  
+  // Handle proceeding with the note
+  handleDone() {
+          console.log('Note length: ', this.note.length);
+          console.log('Note: ', this.note);
+          //If Edit note exceed character limit display error message
+          if (this.note.length > 900) {
+              console.log('Note length: ', this.note.length);
+              this.dispatchEvent(
+                  new ShowToastEvent({
+                      title: 'Error',
+                      message: 'The String limit exceeded. Please reduce the length of the Note.',
+                      variant: 'error',
+                  })
+              );
+              return;
+          }
+  
+  
+          this.showModal = false;
+  }
+
+  handleModalClose() {
+      this.showModal = false;
+      this.editNote = false;
+      this.previewMode = false;
+      this.note = this.defaultNote;
+  }
+
+  handleNoteChange(event) {
+      this.note = event.target.value;
+      console.log('Note length: ', this.note.length);
+  }
+  
+  
+  connectedCallback() {
+      console.log('Record Id: ', this.recordId);
+      getOpportunityId({ oppId: this.recordId })
+          .then(result => {
+              console.log('Record Id@@@: ', this.recordId);
+              console.log('Result from Apex:', result);
+          })
+          .catch(error => {
+              console.error('Error calling Apex:', error);
+          });
+  }
+
+  @wire(getFacilityAndTierData, { opportunityId: '$recordId' })
+      wiredFacilities({ error, data }) {
+          if (data) {
+              this.facilities = data.map(item => {
+                  return {
+                      label: `${item.facilityNo}`,
+                      value: item.facilityNo,
+                      minTier: item.minTier,
+                      maxTier: item.maxTier
+                  };
+              }).sort((a, b) => a.value - b.value); // Sort by facilityNo in increasing order
+          } else if (error) {
+              console.error('Error retrieving facilities:', error);
+          }
+      }
+
+
+  handleGeneratePDF() {
+      validateOpportunityAndInvestors({ opportunityId: this.recordId })
+          .then(result => {
+              if (result.isValid) {
+                  console.log('result###',result.isValid);
+                  // this.showModal = true;
+                  //this.note = this.defaultNote;
+                  console.log('note@@@',this.note);
+                  this.handleProceed();
+              } else {
+                  this.showErrorToast(result.errors);
+                  
+              }
+          })
+          .catch(error => {
+              console.error('Error validating data:', error);
+              this.showPermissionErrorToast();
+          });
+  }
+
+
+  showErrorToast(errors) {
+      console.log('Error: ', errors);
+  
+      // Create maps to group errors
+      let opportunityErrors = [];
+      let investorErrorMap = {};
+      let lenderErrorMap = {};
+  
+      errors.forEach(errorMessage => {
+           // Clean up the error message to only include the field name
+          let cleanedMessage = errorMessage.replace(/required.*$/, '').trim();
+          console.log('Clean Message: ',cleanedMessage );
+
+          // Check if it's an Opportunity error
+          if (errorMessage.includes('Deal')) {
+              opportunityErrors.push(cleanedMessage);
+          } else {
+              // Extract the investor name and lender name from the error message
+              let investorMatch = errorMessage.match(/for Investor: (.+)$/);
+              let lenderMatch = errorMessage.match(/for Lender: (.+)$/);
+              
+              if (investorMatch && investorMatch[1]) {
+                  let investorName = investorMatch[1];
+                  if (!investorErrorMap[investorName]) {
+                      investorErrorMap[investorName] = [];
+                  }
+                  investorErrorMap[investorName].push(cleanedMessage);
+              } else if (lenderMatch && lenderMatch[1]) {
+                  let lenderName = lenderMatch[1];
+                  if (!lenderErrorMap[lenderName]) {
+                      lenderErrorMap[lenderName] = [];
+                  }
+                  lenderErrorMap[lenderName].push(cleanedMessage);
+              }
+          }
+      });
+  
+      // Display a toast for Opportunity errors
+      if (opportunityErrors.length > 0) {
+          setTimeout(() => {
+              this.dispatchEvent(
+                  new ShowToastEvent({
+                      title: 'Error for Deal',
+                      message: 'Required fields are missing:\n' + opportunityErrors.join(', '),
+                      variant: 'error',
+                      mode: 'sticky'
+                  })
+              );
+          }, 0);
+      }
+  
+      // Display a toast for each investor
+      Object.keys(investorErrorMap).forEach((investorName, index) => {
+          setTimeout(() => {
+              this.dispatchEvent(
+                  new ShowToastEvent({
+                      title: 'Error for Investor: ' + investorName,
+                      message: 'Required fields are missing:\n' + investorErrorMap[investorName].join(', '),
+                      variant: 'error',
+                      mode: 'sticky'
+                  })
+              );
+          }, (index + 1) * 500); // 500ms delay between each toast
+      });
+  
+      // Display a toast for each lender
+      Object.keys(lenderErrorMap).forEach((lenderName, index) => {
+          setTimeout(() => {
+              this.dispatchEvent(
+                  new ShowToastEvent({
+                      title: 'Error for Lender: ' + lenderName,
+                      message: 'Required fields are missing:\n' + lenderErrorMap[lenderName].join(', '),
+                      variant: 'error',
+                      mode: 'sticky'
+                  })
+              );
+          }, (Object.keys(investorErrorMap).length + index + 1) * 100); // 500ms delay after investor toasts
+      });
+  }
+  
+  
+
+  showPermissionErrorToast() {
+      this.dispatchEvent(
+          new ShowToastEvent({
+              title: 'Error',
+              message: 'You do not have permission to perform this action. Please contact your System Administrator.',
+              variant: 'error',
+              mode: 'sticky'
+          })
+      );
+  }
+
+
+  
+  async handleProceed() {
+      // Step 1: Calculate the maximum facility number
+      const maxFacility = Math.max(...this.facilities.map(facility => facility.value));
+  
+      // Step 2: Flatten the facility-tier combinations into a single array
+      const facilityTierCombinations = this.facilities.flatMap(facility =>
+          Array.from({ length: facility.maxTier - facility.minTier + 1 }, (_, i) => ({
+              facilityNo: facility.value,
+              tier: facility.minTier + i,
+              maxTier: facility.maxTier
+          }))
+      );
+
+     
+      
+  
+      // Step 3: Process each facility-tier combination
+      for (const combination of facilityTierCombinations) {
+          try {
+              console.log('note%%%', this.note);
+              if (this.note == null) {
+                  this.note = this.defaultNote;
+              }
+              console.log('note*****', this.note);
+              const encodedNote = encodeURIComponent(this.note);
+  
+              const result = await generateAndAttachPDF({
+                  opportunityId: this.recordId,
+                  note: encodedNote,
+                  facilityNo: combination.facilityNo,
+                  tier: combination.tier,
+                  maxTier: combination.maxTier,
+                  maxFacility: maxFacility
+              });
+  
+              console.log(`Facility: ${combination.facilityNo}, Tier: ${combination.tier}`);
+              console.log('ContentDocumentId set:', result.contentDocumentId);
+  
+              this.dispatchEvent(
+                  new ShowToastEvent({
+                      title: 'Success',
+                      message: `All Fee Schedule PDF generated and attached successfully.`,
+                      variant: 'success',
+                  })
+              );
+  
+              // Download the PDF
+              this.downloadPDF(result.pdfContent, result.fileName);
+              this.refreshRecordPage();
+          } catch (error) {
+              console.error(`Combination for Facility ${combination.facilityNo}, Tier ${combination.tier} is missing :`, error);
+          }
+      }
+  
+      console.log('All PDFs generated successfully');
+  }
+  
+
+  refreshRecordPage() {
+      this[NavigationMixin.Navigate]({
+          type: 'standard__recordPage',
+          attributes: {
+              recordId: this.recordId,
+              objectApiName: 'Opportunity',
+              actionName: 'view'
+          },
+      });
+  }
+
+  downloadPDF(pdfContent, fileName) {
+      const link = document.createElement('a');
+      link.href = 'data:application/pdf;base64,' + pdfContent;
+      link.download = fileName; // Use the file name returned from Apex
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  }
+
+  navigateToRecord() {
+      const recordUrl = `/lightning/r/Opportunity/${this.recordId}/view`;
+      window.location.href = recordUrl;
+  }
+}
+
+
+
+
+
